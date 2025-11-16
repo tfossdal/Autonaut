@@ -1,9 +1,9 @@
 function [xdot, M] = autonaut(x,u,V_c,beta_c,V_wind, beta_wind,waves)
 
-% x = [ x y z phi theta psi u v w p q r ]' 
+% x = [ x y z phi theta psi u v w p q r delta_r]' 
 
 if nargin == 0
-    x = zeros(12,1); u = zeros(1,1);
+    x = zeros(13,1); u = zeros(1,1);
 end
 if nargin < 3
     V_c = 0; beta_c = 0;
@@ -70,6 +70,7 @@ rudd.xR = -2.3;                         % Longitudinal rudder position [m]
 rudd.CN = 1.56;                         % Rudder coefficient [-]
 rudd.tR = 0.3;                          % Drag coefficient [-]
 rudd.aH = 0.2;                          % Force factor [-]
+rudd.Ts = 0.2;                          
 
 % Wind model:
 wind.Cx = 0.50;                         % Wind coefficient X-direction [-]
@@ -100,8 +101,11 @@ u_r = nuR(1); v_r = nuR(2); r = nuR(3);
 delta_c = u(1);
 
 % Rudder forces and moments
-delta = delta_c;
+delta = x(13);  % actual rudder angle
+% First order rudder dynamics
+delta_dot = (-delta + delta_c) / rudd.Ts;
 
+% Rudder forces
 alpha = delta - atan2(v_r, u_r);
 
 F_N = 0.5*env.rho*(u_r^2 + v_r^2)*rudd.area*rudd.CN*sin(alpha);
@@ -172,7 +176,7 @@ eta_dot = J * nu;
 
 
 % Time derivative of the state vector, numerical integration see SIMautonaut.m  
-xdot = [eta_dot; nu_dot];
+xdot = [eta_dot; nu_dot; delta_dot];
 
 
 

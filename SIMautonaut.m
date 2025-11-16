@@ -8,7 +8,7 @@ clear autonaut                              % Clear persistent variables
 
 %% USER INPUTS
 h  = 0.01;                       % Sampling time [s]
-T_final = 500;	                 % Final simulation time [s]
+T_final = 200;	                 % Final simulation time [s]
 
 psi_d_deg = 10;                     % Desired heading (deg)
 psi_d = deg2rad(psi_d_deg);         % Desired heading (rad)
@@ -22,7 +22,7 @@ V_wind = 2.5;                         % Wind velocity [m/s]
 beta_wind = deg2rad(-45);                % Cardinal wind direction [rad]
 
 % Initial states
-x = zeros(12,1);                 % x = [xn yn zn phi theta psi u v w p q r]'
+x = zeros(13,1);                 % x = [xn yn zn phi theta psi u v w p q r]'
 u = zeros(2,1);                 % Control input vector, u = [ delta_c thrust_c]
 
 % Time vector initialization
@@ -51,7 +51,7 @@ Kd = 10;
 e_psi_int = 0;
 
 %% MAIN LOOP
-simdata = zeros(nTimeSteps, 16);    % Preallocate table for simulation data
+simdata = zeros(nTimeSteps, 17);    % Preallocate table for simulation data
 
 for i = 1:nTimeSteps
 
@@ -73,7 +73,6 @@ for i = 1:nTimeSteps
         progress = (i/nTimeSteps) * 100;
         fprintf('  %d%% complete\n', round(progress));
     elseif i == 1
-        disp(Kp)
         disp("  Simulation in progress:")
         fprintf('  %d%% complete\n', 0);
     end
@@ -82,9 +81,10 @@ end
 %% PLOTS
 eta  = simdata(:,1:6); 
 nu   = simdata(:,7:12); 
-u    = simdata(:,13:14);
-e_psi = simdata(:,15);
-e_psi_int = simdata(:,16);
+delta_r = simdata(:,13);
+u    = simdata(:,14:15);
+e_psi = simdata(:,16);
+e_psi_int = simdata(:,17);
 
 figure()
 plot(eta(:,2), eta(:,1), 'linewidth', 2);
@@ -102,12 +102,18 @@ ylabel('Heading (deg)');
 
 figure()
 subplot(3,1,1)
-plot(t, rad2deg(u(:,1)), 'linewidth', 2);
-title('Rudder Command');
+plot(t, [rad2deg(u(:,1)), rad2deg(delta_r)], 'linewidth', 2);
+title('Rudder Angle');
+legend('Commanded Rudder Angle', 'Actual Rudder Angle');
 xlabel('Time (s)');
 ylabel('Rudder Angle (deg)');
+
 subplot(3,1,2)
-plot(t, [rad2deg(e_psi), rad2deg(e_psi_int)], 'linewidth', 2);
+plot(t, [rad2deg(e_psi), rad2deg(e_psi_int*Ki)], 'linewidth', 2);
+title('Heading Error and Integral of Heading Error');
+legend('Heading Error', 'Integral of Heading Error');
+xlabel('Time (s)');
+ylabel('Error (deg)');
 
 figure()
 plot(t, nu(:,1), 'linewidth', 2);
