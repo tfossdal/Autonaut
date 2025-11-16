@@ -1,13 +1,22 @@
-function [xdot, M] = autonaut(x,u,V_c, beta_c,wind,waves)
+function [xdot, M] = autonaut(x,u,V_c,beta_c,V_wind, beta_wind,waves)
 
 % x = [ x y z phi theta psi u v w p q r ]' 
 
 if nargin == 0
-    x = zeros(12,1); u = zeros(1,1); V_c = 0; beta_c = 0;
+    x = zeros(12,1); u = zeros(1,1);
+end
+if nargin < 3
+    V_c = 0; beta_c = 0;
+end
+if nargin < 5
+    V_wind = 0; beta_wind = 0;
+end
+if nargin < 7
+    waves = 0;
 end
     
 
-% Main data
+%% Main data
 % Environmental data
 env.g   = 9.81;                 % acceleration of gravity (m/s^2)
 env.rho = 1025;                 % density of water
@@ -62,6 +71,14 @@ rudd.CN = 1.56;                         % Rudder coefficient [-]
 rudd.tR = 0.3;                          % Drag coefficient [-]
 rudd.aH = 0.2;                          % Force factor [-]
 
+% Wind model:
+wind.Cx = 0.50;                         % Wind coefficient X-direction [-]
+wind.Cy = 0.70;                         % Wind coefficient Y-direction [-]
+wind.Cn = 0.05;                         % Wind coefficient N-moment [-]
+wind.AFw = 0.195;                       % Frontal projected area [m^2]
+wind.ALw = 1.5;                         % Lateral projected area [m^2]
+wind.Loa = ANaut.Loa;                   % Length over all [m]
+
 
 % State and current variables
 eta = x(1:6);                           % positions
@@ -75,7 +92,7 @@ nu_c = [u_c v_c 0 0 0 0 ]';                     % current velocity vector
 nu_r = nu - nu_c;                       % relative velocity vector
 nu_dot = zeros(6,1);
 
-% Manoeuvering subsystem
+%% Manoeuvering subsystem
 
 nuR = [nu_r(1); nu_r(2); nu_r(6)];
 u_r = nuR(1); v_r = nuR(2); r = nuR(3);
@@ -96,8 +113,24 @@ tau_rudder = [-(1-rudd.tR)*F_N*sin(delta);
 %                F_N * (1 + rudd.aH) * cos(delta);
 %                F_N * (rudd.xR + rudd.aH * rudd.xH) * cos(delta) * sin(alpha)];
 
-tau = zeros(3,1) + tau_rudder;
-tau(1) = 10;
+% Wind forces and moments
+psi = eta(6);  % heading angle
+u_w = V_wind*cos(beta_wind-psi);
+v_w = V_wind*sin(beta_wind-psi);
+
+u_rw = nu(1) - u_w;
+v_rw = nu(2) - v_w;
+
+gamma_rw = -atan2(v_rw, u_rw);
+
+tau_wind = 0.5*env.rho_a*(u_rw^2 + v_rw^2)*...
+    [ - wind.Cx * wind.AFw * cos(gamma_rw);
+      wind.Cy * wind.ALw * sin(gamma_rw);
+      wind.Cn * wind.ALw * wind.Loa * sin(2*gamma_rw) ];
+ 
+
+tau = zeros(3,1) + tau_rudder + tau_wind;   
+tau(1) = 200;
 
 
 % Manoeuvering model
@@ -125,7 +158,7 @@ Bv = diag([a1.Bv11*abs(u_r), a1.Bv22*abs(v_r), a1.Bv66*abs(r)]);
 
 M = MRB + MA;
 C = CRB + CA;
-B = Bp + Bv;
+B = Bp + Bv;            % Blending may be refined, but no linear breaks it
 
 % nu_c_dot = zeros(3,1);              % Current acceleration vector
 

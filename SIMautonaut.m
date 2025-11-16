@@ -8,7 +8,7 @@ clear autonaut                              % Clear persistent variables
 
 %% USER INPUTS
 h  = 0.01;                       % Sampling time [s]
-T_final = 100;	                 % Final simulation time [s]
+T_final = 500;	                 % Final simulation time [s]
 
 psi_d_deg = 10;                     % Desired heading (deg)
 psi_d = deg2rad(psi_d_deg);         % Desired heading (rad)
@@ -16,6 +16,10 @@ psi_d = deg2rad(psi_d_deg);         % Desired heading (rad)
 % Ocean current
 V_c = 0.3*0;                       % Ocean current speed (m/s)
 beta_c = deg2rad(0);            % Ocean current direction (rad)
+
+% Wind
+V_wind = 2.5;                         % Wind velocity [m/s]
+beta_wind = deg2rad(-45);                % Cardinal wind direction [rad]
 
 % Initial states
 x = zeros(12,1);                 % x = [xn yn zn phi theta psi u v w p q r]'
@@ -36,31 +40,40 @@ wn = 1.5;                        % Closed-loop natural frequency (rad/s)
 zeta = 1.0;                      % Closed-loop relative damping factor (-)
 
 % Kp = M(6,6) * wn^2;                     % Proportional gain
-Kp = M(3,3) * wn^2;                     % Proportional gain
+% Kp = M(3,3) * wn^2;                     % Proportional gain
 % Kd = M(6,6) * (2 * zeta * wn - 1/T);    % Derivative gain
-Kd = M(3,3) * (2 * zeta * wn - 1/T);    % Derivative gain
-Td = Kd / Kp;                           % Derivative time constant
-Ti = 10 / wn;                           % Integral time constant
+% Kd = M(3,3) * (2 * zeta * wn - 1/T);    % Derivative gain
+% Td = Kd / Kp;                           % Derivative time constant
+% Ti = 10 / wn;                           % Integral time constant
+Kp = 1;
+Ki = 0.05;
+Kd = 10;
+e_psi_int = 0;
 
 %% MAIN LOOP
-simdata = zeros(nTimeSteps, 14);    % Preallocate table for simulation data
+simdata = zeros(nTimeSteps, 16);    % Preallocate table for simulation data
 
 for i = 1:nTimeSteps
 
     % delta_c = Kp*e_psi + Kd*e_r + Ki*e_int;
-    delta_c = Kp*(ssa(psi_d - x(6))) - Kd*x(12); % No integral action
+    e_psi = ssa(psi_d - x(6)); % Heading error
+    e_psi_int = e_psi_int + e_psi*h; % Integral of heading error
+    e_psi_int = sat(e_psi_int, deg2rad(20)/Ki); % Anti-windup for integral term
+
+    delta_c = Kp*(e_psi) + Ki*(e_psi_int) - Kd*x(12); % PID
     delta_c = sat(delta_c, deg2rad(30)); % Rudder saturation
     u(1) = delta_c;
 
 
-    simdata(i, :) = [x', u'];   % Store simulation data
-    x = rk4(@autonaut, h, x, u, V_c, beta_c); % Integrate using RK4 method
+    simdata(i, :) = [x', u', e_psi, e_psi_int];   % Store simulation data
+    x = rk4(@autonaut, h, x, u, V_c, beta_c, V_wind, beta_wind); % Integrate using RK4 method
 
     % --- Progress Update Logic ---
     if mod(i, floor(nTimeSteps / 10)) == 0 % Print an update every 10%
         progress = (i/nTimeSteps) * 100;
         fprintf('  %d%% complete\n', round(progress));
     elseif i == 1
+        disp(Kp)
         disp("  Simulation in progress:")
         fprintf('  %d%% complete\n', 0);
     end
@@ -70,6 +83,8 @@ end
 eta  = simdata(:,1:6); 
 nu   = simdata(:,7:12); 
 u    = simdata(:,13:14);
+e_psi = simdata(:,15);
+e_psi_int = simdata(:,16);
 
 figure()
 plot(eta(:,2), eta(:,1), 'linewidth', 2);
@@ -86,8 +101,19 @@ xlabel('Time (s)');
 ylabel('Heading (deg)');
 
 figure()
+subplot(3,1,1)
 plot(t, rad2deg(u(:,1)), 'linewidth', 2);
 title('Rudder Command');
 xlabel('Time (s)');
 ylabel('Rudder Angle (deg)');
+subplot(3,1,2)
+plot(t, [rad2deg(e_psi), rad2deg(e_psi_int)], 'linewidth', 2);
+
+figure()
+plot(t, nu(:,1), 'linewidth', 2);
+title('Surge Velocity');
+xlabel('Time (s)');
+ylabel('Surge Velocity (m/s)');
+
+end
 
