@@ -102,12 +102,63 @@ GM_Lnum = 1/12 * a2.L^2/a2.T;
 % Geometric coefficient
 Cgeo = 0.373 + 0.023*(a2.B/a2.T);
 
-T_Nnum = 2*Cgeo*a2.B/sqrt(a2.GMT);
-
 T4 = 2*a2.B*Cgeo/sqrt(a2.GMT);
 
+% Propulsion model:
+a3.mF1 = 0;                             % Mass [kg]
+a3.mF2 = 0;                             
+a3.mF3 = 0;
+a3.J = 0.1091;                          % Calculated from the point that the foils have uniform density rho_f = 500
+% a3.J2 = 0;
+% a3.J3 = 0;
+a3.AF1 = 0.250;                         % Area [m^2]
+a3.AF2 = 0.125;                         
+a3.AF3 = 0.125;                         
+a3.S1 = 1.3;                            % Span [m]
+a3.S2 = 0.65;                           
+a3.S3 = 0.65;                           
+a3.th1max = deg2rad(50);                % Maximum deflection angle [rad]
+a3.th2max = deg2rad(45);
+a3.th3max = deg2rad(45);
+% a3.lambdaF = 5;                         % Wave filter parameter for theta
+a3.c_m = 0.192;                         % Mean chord length
+a3.c_max = 0.2275;                      % Max chord length
+a3.mu = 0.4;                            % Geometric constant for c_tip
+a3.c_tip = (a3.c_m - a3.c_max*a3.mu)/(1-a3.mu);
+% a3.k_s = 1226;                          % Soft spring constant fore   [N/m]
+% a3.k_s = 2200;                          % Medium spring constant fore [N/m]
+a3.k_s = 5400;                          % Stiff spring constant fore  [N/m]
+a3.offset = 0.0;                        % Offset angle foils [rad]
+a3.d = 4.7e-3;                          % Wire diameter torsion spring [m]
+a3.D = 6*a3.d;                          % Mean diameter torsion spring [m]
+a3.x_s = 60e-3;                         % Distance from pivot point to spring [m]
+a3.E = 200e9;                           % Youngs modulus torsion spring [Pa]
+a3.N_a = 10.3;                          % Number of active turns for torsion spring
+a3.eta = 1;
+% a3.zetaBf = 1.2836;                     % Relative damping factor for foil system
+% a3.zetaBa = 0.8203;
+a3.zetaBf = 3;                          % Relative damping factor for foil system
+a3.zetaBa = 3;
+a3.alphaS = 12.0;                       % "Stall angle" [deg]
+a3.LS = 10;                             % "Stall transition" [deg]
+% a3.Cs = 0.5385;                         % Coefficient for lift reduction in stall regime
+a3.Cs = 0.653;                          % Coefficient for lift reduction in stall regime
+% a3.Calpha = 0.65;                       % Coefficient for unattached flow affecting circulatory moment
+% a3.Cf = 1.0;                            % Coefficient for unsteady flow HC affecting circulatory moment
+a3.tF = 0.2;                            % Added resistance/reduction from foils
+a3.Cd = 0.286;
+a3.pivot = 0.2089;                      % Distance from LE to pivot point [per chord length]
+a3.TB = 0.02;                           % Damping time constant foils
+a3.TBB = 0.1;
 
-% State and current variables
+% Spring parameters
+spring.E = 200e9;                       % Young's modulus steel
+spring.d = 4.7e-3;                      % Spring diameter [m]
+spring.D = spring.d*6;                  % Spring mean diameter [m]
+
+
+%% State and current variables
+
 eta = x(1:6);                           % positions
 nu = x(7:12);                           % velocity vectors
 
@@ -132,16 +183,16 @@ delta = x(13);  % actual rudder angle
 delta_dot = (-delta + delta_c) / rudd.Ts;
 
 % Rudder forces
-alpha = delta - atan2(v_r, u_r);
+alpha_r = delta - atan2(v_r, u_r);
 
-F_N = 0.5*env.rho*(u_r^2 + v_r^2)*rudd.area*rudd.CN*sin(alpha);
+F_N = 0.5*env.rho*(u_r^2 + v_r^2)*rudd.area*rudd.CN*sin(alpha_r);
 
 tau_rudder = [-(1-rudd.tR)*F_N*sin(delta);
               -(1+rudd.aH)*F_N*cos(delta);
               -(rudd.xR + rudd.aH*rudd.xH)*F_N*cos(delta)];
 % tau_rudder = [ F_N * (1 - rudd.tR) * sin(delta);
 %                F_N * (1 + rudd.aH) * cos(delta);
-%                F_N * (rudd.xR + rudd.aH * rudd.xH) * cos(delta) * sin(alpha)];
+%                F_N * (rudd.xR + rudd.aH * rudd.xH) * cos(delta) * sin(alpha_r)];
 
 % Wind forces and moments
 psi = eta(6);  % heading angle
@@ -311,9 +362,9 @@ end
 Lambda_T = a2.B/a2.T;
 
 % Parameters q0', p0', p1' (Eq. 14a-c)
-q0_prime = 0.5696 * (Lambda_T^2) + 1.035 * (Lambda_T - 0.018);
-p0_prime = 0.5917 * (Lambda_T^2) + 0.245 * (Lambda_T - 0.612);
-p1_prime = 0.7376 * (Lambda_T^2) + 0.394 * (Lambda_T - 0.642);
+q0_prime = 0.5696 * (Lambda_T - 0.018) / (Lambda_T + 1.035);
+p0_prime = 0.5917 * (Lambda_T - 0.245) / (Lambda_T + 0.612);
+p1_prime = 0.7376 * (Lambda_T + 0.394) / (Lambda_T + 0.642);
 
 Ar = [  0,                          1;
         -(2*env.g/a2.B) * p1_prime, -(2*env.g/a2.B) * p0_prime  ];
@@ -347,7 +398,18 @@ theta = eta(5);
 
 
 nu_dot(3) = nu(3) + xi_ddot(1)*cos(phi)*cos(theta); % w
-nu_dot(4:5) = nu_dot(4:5) + xi_ddot(2:3);      % p,q
+nu_dot(4:5) = nu_dot(4:5) + xi_ddot(2:3);           % p,q
+
+% %% Propulsion subsystem
+% u_r = nu_r(1);
+% v_r = nu_r(2);
+% w_r = nu_r(3);
+% theta = eta(5);
+% U_r = sqrt(u_r^2 + v_r^2 + w_r^2)   % Relative speed
+
+% alpha = atan2(w_r, u_r) + theta;    % Angle of attack
+
+
 
 
 % Time derivative of the state vector, numerical integration see SIMautonaut.m  

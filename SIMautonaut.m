@@ -25,7 +25,7 @@ beta_wind = deg2rad(-45);                % Cardinal wind direction [rad]
 wave_omega = 1;                     % Wave frequency [rad/s]
 wave_height = 2;           % Significant wave height [m]
 wave_amp = wave_height/2;           % Wave amplitude [m]
-wave_dir = deg2rad(0);              % Wave direction [rad]
+wave_dir = deg2rad(90);              % Wave direction [rad]
 
 
 % Initial states
