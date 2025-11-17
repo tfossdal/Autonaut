@@ -21,6 +21,13 @@ beta_c = deg2rad(0);            % Ocean current direction (rad)
 V_wind = 2.5;                         % Wind velocity [m/s]
 beta_wind = deg2rad(-45);                % Cardinal wind direction [rad]
 
+% Waves
+wave_omega = 1;                     % Wave frequency [rad/s]
+wave_height = 2;           % Significant wave height [m]
+wave_amp = wave_height/2;           % Wave amplitude [m]
+wave_dir = deg2rad(0);              % Wave direction [rad]
+
+
 % Initial states
 x = zeros(13,1);                 % x = [xn yn zn phi theta psi u v w p q r]'
 u = zeros(2,1);                 % Control input vector, u = [ delta_c thrust_c]
@@ -31,13 +38,13 @@ nTimeSteps = length(t);         % Number of time steps
 
 [~, M] = autonaut();    % Get mass matrix M
 
-% PID heading autopilot parameters (Nomoto model: M(6,6) = T/K)
-T = 1;                           % Nomoto time constant
-% K = T / M(6,6);                  % Nomoto gain constant
-K = T / M(3,3);                  % Nomoto gain constant
+% % PID heading autopilot parameters (Nomoto model: M(6,6) = T/K)
+% T = 1;                           % Nomoto time constant
+% % K = T / M(6,6);                  % Nomoto gain constant
+% K = T / M(3,3);                  % Nomoto gain constant
 
-wn = 1.5;                        % Closed-loop natural frequency (rad/s)
-zeta = 1.0;                      % Closed-loop relative damping factor (-)
+% wn = 1.5;                        % Closed-loop natural frequency (rad/s)
+% zeta = 1.0;                      % Closed-loop relative damping factor (-)
 
 % Kp = M(6,6) * wn^2;                     % Proportional gain
 % Kp = M(3,3) * wn^2;                     % Proportional gain
@@ -66,7 +73,7 @@ for i = 1:nTimeSteps
 
 
     simdata(i, :) = [x', u', e_psi, e_psi_int];   % Store simulation data
-    x = rk4(@autonaut, h, x, u, V_c, beta_c, V_wind, beta_wind); % Integrate using RK4 method
+    x = rk4(@autonaut, h, x, u, t(i), V_c, beta_c, V_wind, beta_wind, wave_omega, wave_amp, wave_dir); % Integrate using RK4 method
 
     % --- Progress Update Logic ---
     if mod(i, floor(nTimeSteps / 10)) == 0 % Print an update every 10%
@@ -88,6 +95,7 @@ e_psi_int = simdata(:,17);
 
 figure()
 plot(eta(:,2), eta(:,1), 'linewidth', 2);
+axis equal;
 legend('Autonaut Path');
 title('Autonaut Path in NED frame');
 xlabel('Y (m)');
@@ -120,6 +128,13 @@ plot(t, nu(:,1), 'linewidth', 2);
 title('Surge Velocity');
 xlabel('Time (s)');
 ylabel('Surge Velocity (m/s)');
+
+figure()
+plot(t, [eta(:,3) rad2deg(eta(:,4:5))], 'linewidth', 2);
+title('Heave, Roll and Pitch');
+xlabel('Time (s)');
+ylabel('Heave (m), Roll and Pitch (deg)');
+legend('Heave', 'Roll', 'Pitch');
 
 end
 
