@@ -29,7 +29,7 @@ wave_dir = deg2rad(0);              % Wave direction [rad]
 
 
 % Initial states
-x = zeros(13,1);                 % x = [xn yn zn phi theta psi u v w p q r]'
+x = zeros(17,1);                 % x = [xn yn zn phi theta psi u v w p q r delta_r fluid_memory(4)]'
 u = zeros(2,1);                 % Control input vector, u = [ delta_c thrust_c]
 
 % Time vector initialization
@@ -58,7 +58,7 @@ Kd = 10;
 e_psi_int = 0;
 
 %% MAIN LOOP
-simdata = zeros(nTimeSteps, 17);    % Preallocate table for simulation data
+simdata = zeros(nTimeSteps, 21);    % Preallocate table for simulation data
 
 for i = 1:nTimeSteps
 
@@ -89,9 +89,10 @@ end
 eta  = simdata(:,1:6); 
 nu   = simdata(:,7:12); 
 delta_r = simdata(:,13);
-u    = simdata(:,14:15);
-e_psi = simdata(:,16);
-e_psi_int = simdata(:,17);
+xr = simdata(:,14:17);
+u    = simdata(:,18:19);
+e_psi = simdata(:,20);
+e_psi_int = simdata(:,21);
 
 figure()
 plot(eta(:,2), eta(:,1), 'linewidth', 2);
@@ -130,11 +131,22 @@ xlabel('Time (s)');
 ylabel('Surge Velocity (m/s)');
 
 figure()
-plot(t, [eta(:,3) rad2deg(eta(:,4:5))], 'linewidth', 2);
+subplot(2,1,1)
+plot(t, [eta(:,3)], 'linewidth', 2);
 title('Heave, Roll and Pitch');
 xlabel('Time (s)');
-ylabel('Heave (m), Roll and Pitch (deg)');
-legend('Heave', 'Roll', 'Pitch');
+ylabel('Heave (m)');
+legend('Heave');
+subplot(2,1,2)
+plot(t, rad2deg(eta(:,4:5)), 'linewidth', 2);
+xlabel('Time (s)');
+ylabel('Roll and Pitch (deg)');
+legend('Roll', 'Pitch');
 
+figure()
+plot(t, [xr(:,1), xr(:,3)], 'linewidth', 2);
+title('Fluid Memory States');
+xlabel('Time (s)');
+ylabel('Fluid Memory States');
 end
 

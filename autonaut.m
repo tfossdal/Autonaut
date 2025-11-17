@@ -3,7 +3,7 @@ function [xdot, M] = autonaut(x,u,t,V_c,beta_c,V_wind, beta_wind,wave_omega,wave
 % x = [ x y z phi theta psi u v w p q r delta_r]' 
 
 if nargin == 0
-    x = zeros(13,1); u = zeros(2,1); t=0;
+    x = zeros(17,1); u = zeros(2,1); t=0;
 end
 if nargin < 4
     V_c = 0; beta_c = 0;
@@ -307,19 +307,19 @@ end
 
 % Fluid-memory
 
-% % Transversal aspect ratio
-% Lambda_T = a2.B/a2.T;
+% Transversal aspect ratio
+Lambda_T = a2.B/a2.T;
 
-% % Parameters q0', p0', p1' (Eq. 14a-c)
-% q0_prime = 0.5696 * (Lambda_T^2) + 1.035 * (Lambda_T - 0.018);
-% p0_prime = 0.5917 * (Lambda_T^2) + 0.245 * (Lambda_T - 0.612);
-% p1_prime = 0.7376 * (Lambda_T^2) + 0.394 * (Lambda_T - 0.642);
+% Parameters q0', p0', p1' (Eq. 14a-c)
+q0_prime = 0.5696 * (Lambda_T^2) + 1.035 * (Lambda_T - 0.018);
+p0_prime = 0.5917 * (Lambda_T^2) + 0.245 * (Lambda_T - 0.612);
+p1_prime = 0.7376 * (Lambda_T^2) + 0.394 * (Lambda_T - 0.642);
 
-% Ar = [  0,                          1;
-%         -(2*env.g/a2.B) * p1_prime, -(2*env.g/a2.B) * p0_prime  ];
-% Br = [0; 1];
-% Cr33 = [2*env.rho*env.g*sqrt(2*env.g/B_tilde)*(a2.L)*q0_prime, 0];
-% Cr55 = [2*env.rho*env.g*sqrt(2*env.g/B_tilde)*(a2.L*a2.T*GM_Lnum)*q0_prime, 0];
+Ar = [  0,                          1;
+        -(2*env.g/a2.B) * p1_prime, -(2*env.g/a2.B) * p0_prime  ];
+Br = [0; 1];
+Cr33 = [2*env.rho*env.g*sqrt(2*env.g/a2.B)*(a2.L)*q0_prime, 0];
+Cr55 = [2*env.rho*env.g*sqrt(2*env.g/a2.B)*(a2.L*a2.T*GM_Lnum)*q0_prime, 0];
 
 
 
@@ -328,18 +328,18 @@ end
 xi = eta(3:5);
 xi_dot = eta_dot(3:5);
 
-% xr = x(14:17);   % fluid memory states
-% xr_dot = zeros(4,1);
-% % Heave fluid memory
-% xr_dot(1:2) = Ar * xr(1:2) + Br * xi_dot(1);
-% xr_dot(3:4) = Ar * xr(3:4) + Br * xi_dot(3);
+xr = x(14:17);   % fluid memory states
+xr_dot = zeros(4,1);
+% Heave fluid memory
+xr_dot(1:2) = Ar * xr(1:2) + Br * xi_dot(1);
+xr_dot(3:4) = Ar * xr(3:4) + Br * xi_dot(3);
 
-% mu_r = [Cr33 * xr(1:2);
-%         Cr55 * xr(3:4)];
-
+mu_r = [Cr33 * xr(1:2);
+        0;
+        Cr55 * xr(3:4)];
 
 % Seakeeping model
-xi_ddot = Mrao\(tau_wave1 - Crao*xi - Brao*xi_dot);
+xi_ddot = Mrao\(tau_wave1 - Crao*xi - Brao*xi_dot - mu_r);
 
 phi = eta(4);
 theta = eta(5);
