@@ -1,9 +1,9 @@
 function [xdot, M] = autonaut(x,u,t,V_c,beta_c,V_wind, beta_wind,wave_omega,wave_amp,wave_dir)
 
-% x = [ x y z phi theta psi u v w p q r delta_r]' 
+% x = [ x y z phi theta psi u v w p q r delta_r fluid_memory(1:4) ϑ1 ϑ2 ϑ3 ϑ1_dot ϑ2_dot ϑ3_dot ]'
 
 if nargin == 0
-    x = zeros(17,1); u = zeros(2,1); t=0;
+    x = zeros(29,1); u = zeros(2,1); t=0;
 end
 if nargin < 4
     V_c = 0; beta_c = 0;
@@ -16,7 +16,26 @@ if nargin < 8
     wave_amp = 0;                   % Significant wave height [m]
     wave_dir = deg2rad(0);          % Wave direction [rad]
 end
-    
+
+persistent thetas_ddot;  % Persistent variable to solve algebraic loop
+if isempty(thetas_ddot)
+    thetas_ddot = zeros(3, 1);
+end
+
+persistent tau_foil;    % Persistent variable to solve algebraic loop
+if isempty(tau_foil)
+    tau_foil = zeros(3, 1);
+end
+
+% Example of logging data
+persistent log;
+tf = 1000;  % Final time for logging
+
+% Initialize persistent log variable on the first call
+if isempty(log)
+    log = struct('t', [], 'thetas_ddot', [], 'thetas_dot', [], 'Q_N_1', [], 'Q_A_1', [], 'Q_inertia_1', []);
+end
+
 
 %% Main data
 % Environmental data
@@ -72,7 +91,7 @@ rudd.xR = -2.3;                         % Longitudinal rudder position [m]
 rudd.CN = 1.56;                         % Rudder coefficient [-]
 rudd.tR = 0.3;                          % Drag coefficient [-]
 rudd.aH = 0.2;                          % Force factor [-]
-rudd.Ts = 0.2;                          
+rudd.Ts = 0.2;
 
 % Wind model:
 wind.Cx = 0.50;                         % Wind coefficient X-direction [-]
@@ -105,18 +124,19 @@ Cgeo = 0.373 + 0.023*(a2.B/a2.T);
 T4 = 2*a2.B*Cgeo/sqrt(a2.GMT);
 
 % Propulsion model:
-a3.mF1 = 0;                             % Mass [kg]
-a3.mF2 = 0;                             
-a3.mF3 = 0;
-a3.J = 0.1091;                          % Calculated from the point that the foils have uniform density rho_f = 500
-% a3.J2 = 0;
-% a3.J3 = 0;
+a3.mF1 = 3.5;                             % Mass [kg]
+a3.mF2 = 1.75;
+a3.mF3 = 1.75;
+a3.cg = 0.309;                          % Distance from pivot to foil CG [m]
+a3.J1 = 0.1091;                          % Calculated from the point that the foils have uniform density rho_f = 500
+a3.J2 = a3.J1/2;
+a3.J3 = a3.J1/2;
 a3.AF1 = 0.250;                         % Area [m^2]
-a3.AF2 = 0.125;                         
-a3.AF3 = 0.125;                         
+a3.AF2 = 0.125;
+a3.AF3 = 0.125;
 a3.S1 = 1.3;                            % Span [m]
-a3.S2 = 0.65;                           
-a3.S3 = 0.65;                           
+a3.S2 = 0.65;
+a3.S3 = 0.65;
 a3.th1max = deg2rad(50);                % Maximum deflection angle [rad]
 a3.th2max = deg2rad(45);
 a3.th3max = deg2rad(45);
@@ -141,12 +161,11 @@ a3.zetaBf = 3;                          % Relative damping factor for foil syste
 a3.zetaBa = 3;
 a3.alphaS = 12.0;                       % "Stall angle" [deg]
 a3.LS = 10;                             % "Stall transition" [deg]
-% a3.Cs = 0.5385;                         % Coefficient for lift reduction in stall regime
-a3.Cs = 0.653;                          % Coefficient for lift reduction in stall regime
+a3.CLs = 0.653;                          % Detached lift coefficient
 % a3.Calpha = 0.65;                       % Coefficient for unattached flow affecting circulatory moment
 % a3.Cf = 1.0;                            % Coefficient for unsteady flow HC affecting circulatory moment
 a3.tF = 0.2;                            % Added resistance/reduction from foils
-a3.Cd = 0.286;
+a3.CDs = 0.286;                          % Detached drag coefficient
 a3.pivot = 0.2089;                      % Distance from LE to pivot point [per chord length]
 a3.TB = 0.02;                           % Damping time constant foils
 a3.TBB = 0.1;
@@ -155,6 +174,12 @@ a3.TBB = 0.1;
 spring.E = 200e9;                       % Young's modulus steel
 spring.d = 4.7e-3;                      % Spring diameter [m]
 spring.D = spring.d*6;                  % Spring mean diameter [m]
+
+% Foil pivot points in body-fixed frame
+a3.x1_p = 2.4;                           % Longitudinal position foil 1 [m]
+a3.y1_p = 0.0;                           % Lateral position foil 1 [m]
+a3.z1_p = 0.7;                           % Vertical position foil 1 [m]
+a3.r1_p = [a3.x1_p; a3.y1_p; a3.z1_p];
 
 
 %% State and current variables
@@ -187,9 +212,10 @@ alpha_r = delta - atan2(v_r, u_r);
 
 F_N = 0.5*env.rho*(u_r^2 + v_r^2)*rudd.area*rudd.CN*sin(alpha_r);
 
-tau_rudder = [-(1-rudd.tR)*F_N*sin(delta);
-              -(1+rudd.aH)*F_N*cos(delta);
-              -(rudd.xR + rudd.aH*rudd.xH)*F_N*cos(delta)];
+tau_rudder = [
+    -(1-rudd.tR)*F_N*sin(delta);
+    -(1+rudd.aH)*F_N*cos(delta);
+    -(rudd.xR + rudd.aH*rudd.xH)*F_N*cos(delta)];
 % tau_rudder = [ F_N * (1 - rudd.tR) * sin(delta);
 %                F_N * (1 + rudd.aH) * cos(delta);
 %                F_N * (rudd.xR + rudd.aH * rudd.xH) * cos(delta) * sin(alpha_r)];
@@ -206,28 +232,28 @@ gamma_rw = -atan2(v_rw, u_rw);
 
 tau_wind = 0.5*env.rho_a*(u_rw^2 + v_rw^2)*...
     [ - wind.Cx * wind.AFw * cos(gamma_rw);
-      wind.Cy * wind.ALw * sin(gamma_rw);
-      wind.Cn * wind.ALw * wind.Loa * sin(2*gamma_rw) ];
- 
+    wind.Cy * wind.ALw * sin(gamma_rw);
+    wind.Cn * wind.ALw * wind.Loa * sin(2*gamma_rw) ];
 
-tau = zeros(3,1) + tau_rudder + tau_wind;   
+
+tau = zeros(3,1) + tau_rudder + tau_wind;
 tau(1) = 200;
 
 
 % Manoeuvering model
 MRB = [ a1.m    0           0;
-        0       a1.m        a1.m*a1.xg;
-        0       a1.m*a1.xg  a1.J66];
+    0       a1.m        a1.m*a1.xg;
+    0       a1.m*a1.xg  a1.J66];
 CRB = [ 0               -a1.m*r -a1.m*a1.xg*r;
-        a1.m*r          0       0;
-        a1.m*a1.xg*r    0       0];
+    a1.m*r          0       0;
+    a1.m*a1.xg*r    0       0];
 
 MA = [  a1.A11  0       0;
-        0       a1.A22  a1.A26;
-        0       a1.A62  a1.A66];
+    0       a1.A22  a1.A26;
+    0       a1.A62  a1.A66];
 CA = [  0                       0               -a1.A22*v_r-a1.A26*r;
-        0                       0               a1.A11*u_r;
-        a1.A22*v_r+a1.A26*r     -a1.A11*u_r     0];
+    0                       0               a1.A11*u_r;
+    a1.A22*v_r+a1.A26*r     -a1.A11*u_r     0];
 
 % CA = [0 0 0-a1.A26*r;
 %       0 0 0;
@@ -239,7 +265,7 @@ Bv = diag([a1.Bv11*abs(u_r), a1.Bv22*abs(v_r), a1.Bv66*abs(r)]);
 
 M = MRB + MA;
 C = CRB + CA;
-B = Bp + Bv;            % Blending may be refined, but no linear breaks it
+B = Bp + Bv;            % Blending may be refined, but no linear dampening breaks it
 
 % nu_c_dot = zeros(3,1);              % Current acceleration vector
 
@@ -247,7 +273,7 @@ J = eulerang(eta(4),eta(5),eta(6)); % Kinematic transformation matrix
 
 nuR_dot = M\(tau - C*nuR - B*nuR);
 nu_dot(1) = nuR_dot(1);
-nu_dot(2) = nuR_dot(2); 
+nu_dot(2) = nuR_dot(2);
 nu_dot(6) = nuR_dot(3);
 eta_dot = J * nu;
 
@@ -297,7 +323,7 @@ Lambda = [Lambda_A; Lambda_Af];
 a = zeros(2,1);
 b = zeros(2,1);
 d = zeros(2,1);
-for i=1:2
+for i=1:2                           % From Tufte (2024)'s code
     if Lambda(i) >= 1 && Lambda(i) <= 3
         a(i) = -3.94*Lambda(i) + 13.69;
         b(i) = -2.12*Lambda(i) - 1.89;
@@ -319,7 +345,7 @@ end
 
 b44 = env.rho*R*a2.B^2*sqrt(2*env.g/a2.B)*a.*exp(b.*omega_e^(-1.3)).*omega_e.^(d);
 
-% Integrate sectional damping over length 
+% Integrate sectional damping over length
 B44 = a2.L*(a2.delta*b44(1) + (1-a2.delta)*b44(2));
 
 % ----- end
@@ -367,7 +393,7 @@ p0_prime = 0.5917 * (Lambda_T - 0.245) / (Lambda_T + 0.612);
 p1_prime = 0.7376 * (Lambda_T + 0.394) / (Lambda_T + 0.642);
 
 Ar = [  0,                          1;
-        -(2*env.g/a2.B) * p1_prime, -(2*env.g/a2.B) * p0_prime  ];
+    -(2*env.g/a2.B) * p1_prime, -(2*env.g/a2.B) * p0_prime  ];
 Br = [0; 1];
 Cr33 = [2*env.rho*env.g*sqrt(2*env.g/a2.B)*(a2.L)*q0_prime, 0];
 Cr55 = [2*env.rho*env.g*sqrt(2*env.g/a2.B)*(a2.L*a2.T*GM_Lnum)*q0_prime, 0];
@@ -386,8 +412,8 @@ xr_dot(1:2) = Ar * xr(1:2) + Br * xi_dot(1);
 xr_dot(3:4) = Ar * xr(3:4) + Br * xi_dot(3);
 
 mu_r = [Cr33 * xr(1:2);
-        0;
-        Cr55 * xr(3:4)];
+    0;
+    Cr55 * xr(3:4)];
 
 % Seakeeping model
 xi_ddot = Mrao\(tau_wave1 - Crao*xi - Brao*xi_dot - mu_r);
@@ -400,20 +426,196 @@ theta = eta(5);
 nu_dot(3) = nu(3) + xi_ddot(1)*cos(phi)*cos(theta); % w
 nu_dot(4:5) = nu_dot(4:5) + xi_ddot(2:3);           % p,q
 
-% %% Propulsion subsystem
-% u_r = nu_r(1);
-% v_r = nu_r(2);
-% w_r = nu_r(3);
-% theta = eta(5);
-% U_r = sqrt(u_r^2 + v_r^2 + w_r^2)   % Relative speed
+%% Propulsion subsystem
+theta = eta(5);
 
-% alpha = atan2(w_r, u_r) + theta;    % Angle of attack
+thetas = x(18:20);                  % foil angles ϑ
+thetas_dot = x(21:23);              % foil angular velocities \dot{ϑ}
 
 
+% if abs(thetas(1)) > a3.th1max
+%     thetas(1) = a3.th1max*sign(thetas(1));
+%     thetas_dot(1) = 0;
+%     thetas_ddot(1) = 0;
+% end
+
+thetas_n = thetas + theta;
+thetas_n_dot = thetas_dot + nu(5);  % foil angular velocities in NED frame \dot{ϑ_n}
+thetas_n_ddot = thetas_ddot + nu_dot(5);  % foil angular accelerations in NED frame \ddot{ϑ_n}
 
 
-% Time derivative of the state vector, numerical integration see SIMautonaut.m  
-xdot = [eta_dot; nu_dot; delta_dot; xr_dot];
+
+vnb = nu_r(1:3);
+vnb_dot = nu_dot(1:3);
+wnb = nu_r(4:6);
+wnb_dot = nu_dot(4:6);
+
+% Foil #1
+
+Ry1 = [
+    cos(thetas(1))  0   sin(thetas(1));
+    0               1   0;
+    -sin(thetas(1)) 0   cos(thetas(1))];
+
+x__p1 = zeros(3,1);
+rpx1 = Ry1 * x__p1;  % position of x__p 1 in body-fixed frame
+rbp1 = a3.r1_p;
+r_total1 = rbp1 + rpx1;
+wbp1 = thetas_dot(1) * [0;1;0];
+% wbp_dot1 = thetas_ddot(1) * [0;1;0];                   % PROBLEM, missing theta_ddot
+wbp_dot1 = (thetas_ddot(1)+nu_dot(5)) * [0;1;0];                   % PROBLEM, missing theta_ddot
+
+x_t = x(24:29);  % state vector for Theodorsen
+x_t_dot = zeros(6,1);
+
+
+sigma2 = @(x,x0) 1./(1+exp(-10./deg2rad(5*a3.LS)*(x-x0)));
+C3D = @(L) L./(L+2.25);
+Ca = @(L) (L-0.26)./(L+0.29);
+
+% Foil 1 calculations
+
+% Relative velocity at the foil point, with tan. vel. contributions
+vnx1 = vnb + cross(wnb, r_total1) + cross(wbp1, rpx1);
+
+anx1 = vnb_dot + cross(wnb, r_total1) + cross(wnb, cross(wnb, r_total1)) + ...
+    2*cross(wnb, cross(wbp1, rpx1)) + cross(wbp_dot1, rpx1) + cross(wbp1, cross(wbp1, rpx1));
+
+alpha1 = atan2(vnx1(3), vnx1(1)) + thetas(1);    % Angle of attack foil 1
+alpha1_acc = atan2(anx1(3), anx1(1)) + thetas(1);  % Acceleration angle of attack foil 1
+
+U_r1 = sqrt(vnx1(1)^2 + vnx1(3)^2);   % Relative speed foil 1
+U_r1_dot = sqrt(anx1(1)^2 + anx1(3)^2); % Relative acceleration foil 1
+
+L1 = a3.S1/a3.c_m;                           % Span foil 1
+
+% Normal moment foil 1
+
+CLn1 = pi*sin(2*alpha1).*(1 - a3.CLs*sigma2(abs(alpha1),deg2rad(a3.alphaS)) + a3.CLs*sigma2(abs(alpha1),pi-deg2rad(a3.alphaS)));
+CDn1 = 2*pi*sin(alpha1).^2.*a3.CDs.*((1-a3.CLs) + ... % 1-a3.CLs might be wrong
+    a3.CLs.*sigma2(abs(alpha1),deg2rad(a3.alphaS)) - a3.CLs.*sigma2(abs(alpha1),pi-deg2rad(a3.alphaS)));
+CNn1 = (CLn1.^2 + CDn1.^2).^0.5*sign(alpha1);
+
+F_N_2Dn1 = 0.5*env.rho*U_r1^2.*a3.c_m*CNn1;
+
+F_N_3Dn1 = F_N_2Dn1*a3.S1*C3D(L1);
+
+x_cp1 = centerOfPressure(alpha1)*a3.c_m;
+
+Q_N_stat1 = F_N_3Dn1 * (x_cp1 - a3.pivot*a3.c_m);
+
+% Theodorsen model foil 1
+
+A_t_11 = [  -1.696*U_r1/a3.c_m, -0.380*(U_r1/a3.c_m)^2;
+    1,                  0 ];
+B_t_11 = [  1;  0];
+C_t_11 = [  0.250*U_r1/a3.c_m,  0.190*(U_r1/a3.c_m)^3 ];
+D_t_11 = 0.5;
+
+x_t_dot(1:2) = A_t_11*x_t(1:2) + B_t_11*Q_N_stat1;
+Q_N_1 = C_t_11*x_t(1:2) + D_t_11*Q_N_stat1;
+
+% Added mass moment
+F_A_1 = Ca(L1) * 1/4 * env.rho * pi * a3.c_m^2 * a3.S1 * U_r1_dot * sin(alpha1_acc);
+Q_A_1 = F_A_1*(0.5-0.2089)*a3.c_m;
+
+% Moment inertia
+rbp1 = a3.r1_p;
+omega = nu(4:6);
+omega_dot = nu_dot(4:6);
+% Total acceleration of the pivot point in body-fixed frame
+r_p_ddot = nu_dot(1:3) + cross(omega_dot, rbp1) + cross(omega, cross(omega, rbp1));
+
+r_pb_ddot = Rzyx(eta(4),eta(5),eta(6)) * r_p_ddot;  % in NED frame
+x_ddot = r_pb_ddot(1);
+z_ddot = r_pb_ddot(3);
+
+% 𝑄 inertia = −𝛿𝑥𝑚 𝑧_𝑝 cos(𝜗𝑛 ) − 𝛿𝑥𝑚𝑥_𝑝 sin(𝜗𝑛 ), <=>
+% − Z̈p cos(ϑn ) · (xc.g. − xp )
+% − Ẍp sin(ϑn) · (xc.g. − xp )
+Q_inertia_1 = (-z_ddot*cos(thetas_n(1)) -x_ddot*sin(thetas_n(1)))*a3.mF1* (a3.cg-a3.pivot)*a3.c_m;
+
+% Foild dynamics #1
+
+MFF1 = a3.J1 + a3.eta*1/128*env.rho*pi*a3.c_m^4*a3.S1;
+% MFF2 = a3.J2 + a3.eta*1/128*env.rho*pi*a3.c_m^4*a3.S2;
+
+CFF1 = a3.k_s*a3.x_s^2;           % Linear spring; aft foils are different
+% CFF2 = 1/64*a3.d^4*a3.E/(a3.D*a3.N_a);
+
+BFFl1 = MFF1/a3.TB;
+% BFFq1 = MFF1/a3.TBB;
+BFFq1 = MFF1/a3.TBB*0;
+
+BFF1 = BFFl1 + BFFq1*abs(thetas_n_dot(1));
+
+thetas_n_ddot(1) = MFF1\( -BFF1*thetas_n_dot(1) - CFF1*thetas_n(1) + CFF1*ones(1,1)*theta + Q_A_1 + Q_N_1 + Q_inertia_1 );
+
+thetas_ddot = thetas_n_ddot - nu_dot(5);
+
+
+% Enforce foil angle limits
+if thetas(1) >= a3.th1max
+    if thetas_ddot(1) > 0
+        thetas_ddot(1) = 0;
+        if thetas_ddot(1) > 0
+            thetas_ddot(1) = 0;
+        end
+    end
+end
+if thetas(1) <= -a3.th1max
+    if thetas_ddot(1) < 0
+        thetas_ddot(1) = 0;
+        if thetas_ddot(1) < 0
+            thetas_ddot(1) = 0;
+        end
+    end
+end
+
+% Why does theta_n_ddot go to 3000? Debugging
+if thetas_n_ddot(1) > 3000
+    disp('Warning: High foil acceleration detected!');
+
+    % Components of BFF1
+    disp(['MFF1: ', num2str(MFF1)]);
+    disp(['a3.TB: ', num2str(a3.TB)]);
+    disp(['BFFl1 (MFF1/a3.TB): ', num2str(BFFl1)]);
+    disp(['a3.TBB: ', num2str(a3.TBB)]);
+    disp(['BFFq1 (MFF1/a3.TBB): ', num2str(BFFq1)]);
+    disp(['abs(thetas_dot(1)): ', num2str(abs(thetas_dot(1)))]);
+    disp(['BFF1 (BFFl1 + BFFq1*abs(thetas_dot(1))): ', num2str(BFF1)]);
+
+    % Components of thetas_ddot(1)
+    disp(['MFF1: ', num2str(MFF1)]);
+    disp(['-BFF1*thetas_dot(1): ', num2str(-BFF1*thetas_dot(1))]);
+    disp(['-CFF1*thetas_n(1): ', num2str(-CFF1*thetas_n(1))]);
+    disp(['CFF1*theta: ', num2str(CFF1*theta)]);
+    disp(['Q_N_1: ', num2str(Q_N_1)]);
+    disp(['Q_A_1: ', num2str(Q_A_1)]);
+    disp(['Q_inertia_1: ', num2str(Q_inertia_1)]);
+    disp(['Sum of components: ', num2str(-BFF1*thetas_dot(1) - CFF1*thetas_n(1) + CFF1*theta + Q_N_1 + Q_A_1 + Q_inertia_1)]);
+    disp(['Resulting thetas_ddot(1): ', num2str(thetas_ddot(1))]);
+    disp('');
+end
+
+% Store thetas_ddot, thetas_dot, and time in the log
+log.t(end+1, 1) = t;
+log.thetas_dot(end+1, :) = thetas_dot(:)';
+log.thetas_ddot(end+1, :) = thetas_ddot(:)';
+log.Q_N_1(end+1, :) = Q_N_1(:)';
+log.Q_A_1(end+1, :) = Q_A_1(:)';
+log.Q_inertia_1(end+1, :) = Q_inertia_1(:)';
+
+% Save the log to a MAT-file when the simulation is complete
+if t >= tf % Assuming tf is the final simulation time
+    save('simulation_log.mat', 'log');
+    disp('Simulation log saved to simulation_log.mat');
+    disp(t);
+end
+
+
+% Time derivative of the state vector, numerical integration see SIMautonaut.m
+xdot = [eta_dot; nu_dot; delta_dot; xr_dot; thetas_dot; thetas_ddot; x_t_dot];
 
 
 

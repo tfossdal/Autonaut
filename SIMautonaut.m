@@ -8,7 +8,7 @@ clear autonaut                              % Clear persistent variables
 
 %% USER INPUTS
 h  = 0.01;                       % Sampling time [s]
-T_final = 200;	                 % Final simulation time [s]
+T_final = 1000;	                 % Final simulation time [s]
 
 psi_d_deg = 10;                     % Desired heading (deg)
 psi_d = deg2rad(psi_d_deg);         % Desired heading (rad)
@@ -29,7 +29,8 @@ wave_dir = deg2rad(90);              % Wave direction [rad]
 
 
 % Initial states
-x = zeros(17,1);                 % x = [xn yn zn phi theta psi u v w p q r delta_r fluid_memory(4)]'
+x = zeros(29,1);                % x = [xn yn zn phi theta psi u v w p q r delta_r ...
+                                %  fluid_memory(4) ϑ(3) ϑ_dot(3) x_t(6) ]'
 u = zeros(2,1);                 % Control input vector, u = [ delta_c thrust_c]
 
 % Time vector initialization
@@ -58,7 +59,8 @@ Kd = 10;
 e_psi_int = 0;
 
 %% MAIN LOOP
-simdata = zeros(nTimeSteps, 21);    % Preallocate table for simulation data
+simdata_x = zeros(nTimeSteps, 29);    % Preallocate table for simulation data
+simdata_input = zeros(nTimeSteps, 4);    % Preallocate table for simulation data
 
 for i = 1:nTimeSteps
 
@@ -72,7 +74,8 @@ for i = 1:nTimeSteps
     u(1) = delta_c;
 
 
-    simdata(i, :) = [x', u', e_psi, e_psi_int];   % Store simulation data
+    simdata_x(i, :) = x';   % Store simulation data
+    simdata_input(i, :) = [u', e_psi, e_psi_int];   % Store input data data
     x = rk4(@autonaut, h, x, u, t(i), V_c, beta_c, V_wind, beta_wind, wave_omega, wave_amp, wave_dir); % Integrate using RK4 method
 
     % --- Progress Update Logic ---
@@ -86,13 +89,17 @@ for i = 1:nTimeSteps
 end
 
 %% PLOTS
-eta  = simdata(:,1:6); 
-nu   = simdata(:,7:12); 
-delta_r = simdata(:,13);
-xr = simdata(:,14:17);
-u    = simdata(:,18:19);
-e_psi = simdata(:,20);
-e_psi_int = simdata(:,21);
+eta  = simdata_x(:,1:6); 
+theta = eta(:,5);               % pitch angle
+nu   = simdata_x(:,7:12); 
+q = nu(:,5);                  % pitch rate
+delta_r = simdata_x(:,13);
+xr = simdata_x(:,14:17);
+thetas = simdata_x(:,18:20);
+thetas_dot = simdata_x(:,21:23);
+u    = simdata_input(:,1:2);
+e_psi = simdata_input(:,3);
+e_psi_int = simdata_input(:,4);
 
 figure()
 plot(eta(:,2), eta(:,1), 'linewidth', 2);
@@ -148,5 +155,46 @@ plot(t, [xr(:,1), xr(:,3)], 'linewidth', 2);
 title('Fluid Memory States');
 xlabel('Time (s)');
 ylabel('Fluid Memory States');
+
+figure()
+subplot(2,1,1)
+plot(t, [thetas, theta], 'linewidth', 2);
+title('Foil Angles');
+legend('Foil 1', 'Foil 2', 'Foil 3', 'Pitch Angle');
+xlabel('Time (s)');
+ylabel('Foil Angles (rad)');
+
+subplot(2,1,2)
+plot(t, [thetas_dot, q], 'linewidth', 2);
+title('Foil Angular Velocities');
+legend('Foil 1', 'Foil 2', 'Foil 3', 'Pitch Rate');
+xlabel('Time (s)');
+
+sim_log = load("simulation_log.mat");
+sim_log = sim_log.log;
+
+figure()
+plot(sim_log.t, rad2deg(sim_log.thetas_dot), 'linewidth', 2);
+title('Logged Foil Angular Velocities');
+legend('Foil 1', 'Foil 2', 'Foil 3');
+xlabel('Time (s)');
+ylabel('Foil Angular Velocities (deg/s)');
+
+figure()
+plot(sim_log.t, sim_log.thetas_ddot, 'linewidth', 2);
+title('Logged Foil Angular Accelerations');
+legend('Foil 1', 'Foil 2', 'Foil 3');
+xlabel('Time (s)');
+ylabel('Foil Angular Accelerations (rad/s^2)');
+
+figure()
+plot(sim_log.t, [sim_log.Q_N_1, sim_log.Q_A_1, sim_log.Q_inertia_1], 'linewidth', 2);
+title('Logged Foil 1 Forces');
+legend('Total Force Q_N_1', 'Added Mass Force Q_A_1', 'Inertia Force Q_I_1');
+xlabel('Time (s)');
+ylabel('Forces (N)');
+
+
+
 end
 
