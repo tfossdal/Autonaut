@@ -551,9 +551,9 @@ F_N_2Dn1 = 0.5*env.rho*U_r1^2.*a3.c_m*CNn1;
 
 F_N_3Dn1 = F_N_2Dn1*a3.S1*C3D(L1);
 
-x_cp1 = centerOfPressure(alpha1)*a3.c_m;
+% x_cp1 = centerOfPressure(alpha1)*a3.c_m;
 
-Q_N_stat1 = F_N_3Dn1 * (x_cp1 - a3.pivot*a3.c_m);
+% Q_N_stat1 = F_N_3Dn1 * (x_cp1 - a3.pivot*a3.c_m);
 
 % Foil #2
 
@@ -597,9 +597,9 @@ F_N_2Dn2 = 0.5*env.rho*U_r2^2.*a3.c_m*CNn2;
 
 F_N_3Dn2 = F_N_2Dn2*a3.S2*C3D(L2);
 
-x_cp2 = centerOfPressure(alpha2)*a3.c_m;
+% x_cp2 = centerOfPressure(alpha2)*a3.c_m;
 
-Q_N_stat2 = F_N_3Dn2 * (x_cp2 - a3.pivot*a3.c_m);
+% Q_N_stat2 = F_N_3Dn2 * (x_cp2 - a3.pivot*a3.c_m);
 
 % Foil #1
 
@@ -642,9 +642,9 @@ F_N_2Dn3 = 0.5*env.rho*U_r3^2.*a3.c_m*CNn3;
 
 F_N_3Dn3 = F_N_2Dn3*a3.S3*C3D(L3);
 
-x_cp3 = centerOfPressure(alpha3)*a3.c_m;
+% x_cp3 = centerOfPressure(alpha3)*a3.c_m;
 
-Q_N_stat3 = F_N_3Dn3 * (x_cp3 - a3.pivot*a3.c_m);
+% Q_N_stat3 = F_N_3Dn3 * (x_cp3 - a3.pivot*a3.c_m);
 
 % Theodorsen model
 
@@ -671,10 +671,21 @@ B_t = blkdiag(B_t_11, B_t_22, B_t_33);
 C_t = blkdiag(C_t_11, C_t_22, C_t_33);
 D_t = blkdiag(D_t_11, D_t_22, D_t_33);
 
-Q_N_stat = [Q_N_stat1; Q_N_stat2; Q_N_stat3];
+% Q_N_stat = [Q_N_stat1; Q_N_stat2; Q_N_stat3];
 
-x_t_dot = A_t*x_t + B_t*Q_N_stat;
-Q_N = C_t*x_t + D_t*Q_N_stat;
+% x_t_dot = A_t*x_t + B_t*Q_N_stat;
+% Q_N = C_t*x_t + D_t*Q_N_stat;
+
+F_N_stat = [F_N_3Dn1; F_N_3Dn2; F_N_3Dn3];
+
+x_t_dot = A_t*x_t + B_t*F_N_stat;
+F_N = C_t*x_t + D_t*F_N_stat;
+
+x_cp1 = centerOfPressure(alpha1)*a3.c_m;
+x_cp2 = centerOfPressure(alpha2)*a3.c_m;
+x_cp3 = centerOfPressure(alpha3)*a3.c_m;
+
+Q_N = F_N .* ([x_cp1; x_cp2; x_cp3] - a3.pivot*a3.c_m);
 
 % Added mass moment
 F_A_1 = Ca(L1) * 1/4 * env.rho * pi * a3.c_m^2 * a3.S1 * U_r1_dot * sin(alpha1_acc);
@@ -784,9 +795,10 @@ for j = 1:3
 end
 
 thetas_n = thetas + theta;
-F_N = Q_N ./ ([x_cp1;x_cp2;x_cp3] - a3.pivot*a3.c_m);
+% F_N = Q_N ./ ([x_cp1;x_cp2;x_cp3] - a3.pivot*a3.c_m);
 
-tau_foil(1) = sum(abs((F_N + F_A) * (1-a3.tF) .* sin(thetas_n)));
+% tau_foil(1) = sum(abs((F_N + F_A) * (1-a3.tF) .* sin(thetas_n)));
+tau_foil(1) = 100;
 if tau_foil(1) > 5000
     disp('Warning: tau_foil is too high')
 end

@@ -235,9 +235,9 @@ ylabel('Moment (Nm)');
 figure()
 subplot(3,1,1)
 plot(sim_log.t, sim_log.tau_foil, 'linewidth', 2);
-title('Logged Foil Torques');
+title('Logged Foil Force');
 xlabel('Time (s)');
-ylabel('Torque (Nm)');
+ylabel('Force (N)');
 
 subplot(3,1,2)
 plot(sim_log.t, sim_log.tau_rudder, 'linewidth', 2);
