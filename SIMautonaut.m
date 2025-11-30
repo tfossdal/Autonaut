@@ -8,7 +8,7 @@ clear autonaut                              % Clear persistent variables
 
 %% USER INPUTS
 h  = 0.01;                       % Sampling time [s]
-T_final = 1000;	                 % Final simulation time [s]
+T_final = 200;	                 % Final simulation time [s]
 
 psi_d_deg = 10;                     % Desired heading (deg)
 psi_d = deg2rad(psi_d_deg);         % Desired heading (rad)
@@ -18,14 +18,14 @@ V_c = 0.3*0;                       % Ocean current speed (m/s)
 beta_c = deg2rad(0);            % Ocean current direction (rad)
 
 % Wind
-V_wind = 2.5;                         % Wind velocity [m/s]
+V_wind = 0;                         % Wind velocity [m/s]
 beta_wind = deg2rad(-45);                % Cardinal wind direction [rad]
 
 % Waves
-wave_omega = 1;                     % Wave frequency [rad/s]
-wave_height = 2;           % Significant wave height [m]
+wave_omega = 1.5;                     % Wave frequency [rad/s]
+wave_height = 1;           % Significant wave height [m]
 wave_amp = wave_height/2;           % Wave amplitude [m]
-wave_dir = deg2rad(90);              % Wave direction [rad]
+wave_dir = deg2rad(40);              % Wave direction [rad]
 
 
 % Initial states
@@ -34,10 +34,10 @@ x = zeros(29,1);                % x = [xn yn zn phi theta psi u v w p q r delta_
 u = zeros(2,1);                 % Control input vector, u = [ delta_c thrust_c]
 
 % Time vector initialization
-t = 0:h:T_final;                % Time vector from 0 to T_final          
+t = 0:h:T_final;                % Time vector from 0 to T_final
 nTimeSteps = length(t);         % Number of time steps
 
-[~, M] = autonaut();    % Get mass matrix M
+[~, ~, foilLimits] = autonaut();    % Get mass matrix M amd foil Limits
 
 % % PID heading autopilot parameters (Nomoto model: M(6,6) = T/K)
 % T = 1;                           % Nomoto time constant
@@ -78,6 +78,29 @@ for i = 1:nTimeSteps
     simdata_input(i, :) = [u', e_psi, e_psi_int];   % Store input data data
     x = rk4(@autonaut, h, x, u, t(i), V_c, beta_c, V_wind, beta_wind, wave_omega, wave_amp, wave_dir); % Integrate using RK4 method
 
+    % Enforcement of bounds
+    thetas = x(18:20);                  % foil angles ϑ
+    thetas_dot = x(21:23);              % foil angular velocities \dot{ϑ}
+
+    % Enforce foil angle limits
+    for j = 1:3
+        if thetas(j) >= foilLimits(j)
+            thetas(j) = foilLimits(j);
+            if thetas_dot(j) > 0
+                thetas_dot(j) = 0;
+            end
+        end
+        if thetas(j) <= -foilLimits(j)
+            thetas(j) = -foilLimits(j);
+            if thetas_dot(j) < 0
+                thetas_dot(j) = 0;
+            end
+        end
+    end
+    x(18:20) = thetas;                  % foil angles ϑ
+    x(21:23) = thetas_dot;              % foil angular velocities \dot{ϑ}
+
+
     % --- Progress Update Logic ---
     if mod(i, floor(nTimeSteps / 10)) == 0 % Print an update every 10%
         progress = (i/nTimeSteps) * 100;
@@ -89,9 +112,9 @@ for i = 1:nTimeSteps
 end
 
 %% PLOTS
-eta  = simdata_x(:,1:6); 
+eta  = simdata_x(:,1:6);
 theta = eta(:,5);               % pitch angle
-nu   = simdata_x(:,7:12); 
+nu   = simdata_x(:,7:12);
 q = nu(:,5);                  % pitch rate
 delta_r = simdata_x(:,13);
 xr = simdata_x(:,14:17);
@@ -174,11 +197,11 @@ sim_log = load("simulation_log.mat");
 sim_log = sim_log.log;
 
 figure()
-plot(sim_log.t, rad2deg(sim_log.thetas_dot), 'linewidth', 2);
+plot(sim_log.t, sim_log.thetas_dot, 'linewidth', 2);
 title('Logged Foil Angular Velocities');
 legend('Foil 1', 'Foil 2', 'Foil 3');
 xlabel('Time (s)');
-ylabel('Foil Angular Velocities (deg/s)');
+ylabel('Foil Angular Velocities (rad/s)');
 
 figure()
 plot(sim_log.t, sim_log.thetas_ddot, 'linewidth', 2);
@@ -188,11 +211,40 @@ xlabel('Time (s)');
 ylabel('Foil Angular Accelerations (rad/s^2)');
 
 figure()
-plot(sim_log.t, [sim_log.Q_N_1, sim_log.Q_A_1, sim_log.Q_inertia_1], 'linewidth', 2);
-title('Logged Foil 1 Forces');
-legend('Total Force Q_N_1', 'Added Mass Force Q_A_1', 'Inertia Force Q_I_1');
+subplot(3,1,1)
+plot(sim_log.t, sim_log.Q_N, 'linewidth', 2);
+title('Logged Foil Normal Forces');
+legend('Foil 1', 'Foil 2', 'Foil 3');
 xlabel('Time (s)');
-ylabel('Forces (N)');
+ylabel('Force (m)');
+
+subplot(3,1,2)
+plot(sim_log.t, sim_log.Q_A, 'linewidth', 2);
+title('Logged Foil Added Mass Forces');
+legend('Foil 1', 'Foil 2', 'Foil 3');
+xlabel('Time (s)');
+ylabel('Force (N)');
+
+subplot(3,1,3)
+plot(sim_log.t, sim_log.Q_inertia, 'linewidth', 2);
+title('Logged Foil Inertia Forces');
+legend('Foil 1', 'Foil 2', 'Foil 3');
+xlabel('Time (s)');
+ylabel('Moment (Nm)');
+
+figure()
+subplot(3,1,1)
+plot(sim_log.t, sim_log.tau_foil, 'linewidth', 2);
+title('Logged Foil Torques');
+xlabel('Time (s)');
+ylabel('Torque (Nm)');
+
+subplot(3,1,2)
+plot(sim_log.t, sim_log.tau_rudder, 'linewidth', 2);
+title('Logged Rudder Forces');
+xlabel('Time (s)');
+ylabel('Force (N)');
+legend('X-direction', 'Y-direction', 'Yaw-direction');
 
 
 

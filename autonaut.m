@@ -1,4 +1,4 @@
-function [xdot, M] = autonaut(x,u,t,V_c,beta_c,V_wind, beta_wind,wave_omega,wave_amp,wave_dir)
+function [xdot, M, foilLimits] = autonaut(x,u,t,V_c,beta_c,V_wind, beta_wind,wave_omega,wave_amp,wave_dir)
 
 % x = [ x y z phi theta psi u v w p q r delta_r fluid_memory(1:4) ϑ1 ϑ2 ϑ3 ϑ1_dot ϑ2_dot ϑ3_dot ]'
 
@@ -29,11 +29,11 @@ end
 
 % Example of logging data
 persistent log;
-tf = 1000;  % Final time for logging
+tf = 200;  % Final time for logging
 
 % Initialize persistent log variable on the first call
 if isempty(log)
-    log = struct('t', [], 'thetas_ddot', [], 'thetas_dot', [], 'Q_N_1', [], 'Q_A_1', [], 'Q_inertia_1', []);
+    log = struct('t', [], 'thetas_ddot', [], 'thetas_dot', [], 'Q_N', [], 'Q_A', [], 'Q_inertia', [], 'tau_foil', [], 'tau_rudder', []);
 end
 
 
@@ -181,6 +181,15 @@ a3.y1_p = 0.0;                           % Lateral position foil 1 [m]
 a3.z1_p = 0.7;                           % Vertical position foil 1 [m]
 a3.r1_p = [a3.x1_p; a3.y1_p; a3.z1_p];
 
+a3.x2_p = -2.3;                         % Longitudinal position foil 2 [m]
+a3.y2_p = -0.3;                         % Lateral position foil 2 [m]
+a3.z2_p = 0.7;                          % Vertical position foil 2 [m]
+a3.r2_p = [a3.x2_p; a3.y2_p; a3.z2_p];
+
+a3.x3_p = -2.3;                         % Longitudinal position foil 3 [m]
+a3.y3_p = 0.3;                          % Lateral position foil 3 [m]
+a3.z3_p = 0.7;                          % Vertical position foil 3 [m]
+a3.r3_p = [a3.x3_p; a3.y3_p; a3.z3_p];
 
 %% State and current variables
 
@@ -194,6 +203,48 @@ nu_c = [u_c v_c 0 0 0 0 ]';                     % current velocity vector
 
 nu_r = nu - nu_c;                       % relative velocity vector
 nu_dot = zeros(6,1);
+
+
+theta = eta(5);
+
+thetas = x(18:20);                  % foil angles ϑ
+thetas_dot = x(21:23);              % foil angular velocities \dot{ϑ}
+
+% Enforce foil angle limits
+if thetas(1) >= a3.th1max
+    thetas(1) = a3.th1max;
+    disp('Beginning')
+    if thetas_dot(1) > 0
+        disp(['thetas_dot(1): ', num2str(thetas_dot(1))]);
+        thetas_dot(1) = 0;
+        disp(['thetas_dot(1): ', num2str(thetas_dot(1))]);
+    end
+    if thetas_ddot(1) > 0
+        disp(['thetas_ddot(1): ', num2str(thetas_ddot(1))]);
+        thetas_ddot(1) = 0;
+        disp(['thetas_ddot(1): ', num2str(thetas_ddot(1))]);
+    end
+end
+if thetas(1) <= -a3.th1max
+    thetas(1) = -a3.th1max;
+    if thetas_dot(1) < 0
+        disp(['thetas_dot(1): ', num2str(thetas_dot(1))]);
+        thetas_dot(1) = 0;
+        disp(['thetas_dot(1): ', num2str(thetas_dot(1))]);
+    end
+    if thetas_ddot(1) < 0
+        disp(['thetas_ddot(1): ', num2str(thetas_ddot(1))]);
+        thetas_ddot(1) = 0;
+        disp(['thetas_ddot(1): ', num2str(thetas_ddot(1))]);
+    end
+end
+
+
+% if abs(thetas(1)) > a3.th1max
+%     thetas(1) = a3.th1max*sign(thetas(1));
+%     thetas_dot(1) = 0;
+%     thetas_ddot(1) = 0;
+% end
 
 %% Manoeuvering subsystem
 
@@ -236,8 +287,8 @@ tau_wind = 0.5*env.rho_a*(u_rw^2 + v_rw^2)*...
     wind.Cn * wind.ALw * wind.Loa * sin(2*gamma_rw) ];
 
 
-tau = zeros(3,1) + tau_rudder + tau_wind;
-tau(1) = 200;
+tau = zeros(3,1) + tau_rudder + tau_wind + tau_foil;
+% tau(1) = 200;
 
 
 % Manoeuvering model
@@ -360,7 +411,7 @@ Brao = diag([B33, B44, B55]);
 
 % Heave force
 Z0 = C33*kappa*f*sin(0.5*ke*a2.L)/(0.5*ke*a2.L);
-% Z0 = C33*kappa*f*sinc(0.5*ke*a2.L);
+% Z01 = C33*kappa*f*sinc(0.5*ke*a2.L);
 
 % Roll force
 K0 = abs(sin(beta))*sqrt(env.rho*env.g^2/omega_e*B44);
@@ -392,11 +443,18 @@ q0_prime = 0.5696 * (Lambda_T - 0.018) / (Lambda_T + 1.035);
 p0_prime = 0.5917 * (Lambda_T - 0.245) / (Lambda_T + 0.612);
 p1_prime = 0.7376 * (Lambda_T + 0.394) / (Lambda_T + 0.642);
 
-Ar = [  0,                          1;
-    -(2*env.g/a2.B) * p1_prime, -(2*env.g/a2.B) * p0_prime  ];
-Br = [0; 1];
-Cr33 = [2*env.rho*env.g*sqrt(2*env.g/a2.B)*(a2.L)*q0_prime, 0];
-Cr55 = [2*env.rho*env.g*sqrt(2*env.g/a2.B)*(a2.L*a2.T*GM_Lnum)*q0_prime, 0];
+% This is a wrong one
+% Ar = [  0,                          1;
+%     -(2*env.g/a2.B) * p1_prime, -(2*env.g/a2.B) * p0_prime  ];
+% Br = [0; 1];
+% Cr33 = [2*env.rho*env.g*sqrt(2*env.g/a2.B)*(a2.L)*q0_prime, 0];
+% Cr55 = [2*env.rho*env.g*sqrt(2*env.g/a2.B)*(a2.L*a2.T*GM_Lnum)*q0_prime, 0];
+
+Ar = [-sqrt(2*env.g/a2.B)*p1_prime, -(2*env.g/a2.B)*p0_prime;
+    1,                            0];
+Br = [1; 0];
+Cr33 = [2*env.rho*env.g*sqrt(2*a2.B*env.g)*(a2.L)*q0_prime, 0];
+Cr55 = [2*env.rho*env.g*sqrt(2*a2.B*env.g)*(a2.L*a2.T*GM_Lnum)*q0_prime, 0];
 
 
 
@@ -407,7 +465,7 @@ xi_dot = eta_dot(3:5);
 
 xr = x(14:17);   % fluid memory states
 xr_dot = zeros(4,1);
-% Heave fluid memory
+% Heave and pitch fluid memory
 xr_dot(1:2) = Ar * xr(1:2) + Br * xi_dot(1);
 xr_dot(3:4) = Ar * xr(3:4) + Br * xi_dot(3);
 
@@ -423,32 +481,28 @@ theta = eta(5);
 % psi = eta(6);
 
 
-nu_dot(3) = nu(3) + xi_ddot(1)*cos(phi)*cos(theta); % w
+nu_dot(3) = nu_dot(3) + xi_ddot(1)*cos(phi)*cos(theta); % w
 nu_dot(4:5) = nu_dot(4:5) + xi_ddot(2:3);           % p,q
 
 %% Propulsion subsystem
-theta = eta(5);
 
-thetas = x(18:20);                  % foil angles ϑ
-thetas_dot = x(21:23);              % foil angular velocities \dot{ϑ}
-
-
-% if abs(thetas(1)) > a3.th1max
-%     thetas(1) = a3.th1max*sign(thetas(1));
-%     thetas_dot(1) = 0;
-%     thetas_ddot(1) = 0;
-% end
 
 thetas_n = thetas + theta;
 thetas_n_dot = thetas_dot + nu(5);  % foil angular velocities in NED frame \dot{ϑ_n}
 thetas_n_ddot = thetas_ddot + nu_dot(5);  % foil angular accelerations in NED frame \ddot{ϑ_n}
 
 
-
 vnb = nu_r(1:3);
 vnb_dot = nu_dot(1:3);
 wnb = nu_r(4:6);
 wnb_dot = nu_dot(4:6);
+
+x_t = x(24:29);  % state vector for Theodorsen
+x_t_dot = zeros(6,1);
+
+sigma2 = @(x,x0) 1./(1+exp(-10./deg2rad(5*a3.LS)*(x-x0)));
+C3D = @(L) L./(L+2.25);
+Ca = @(L) (L-0.26)./(L+0.29);
 
 % Foil #1
 
@@ -465,14 +519,6 @@ wbp1 = thetas_dot(1) * [0;1;0];
 % wbp_dot1 = thetas_ddot(1) * [0;1;0];                   % PROBLEM, missing theta_ddot
 wbp_dot1 = (thetas_ddot(1)+nu_dot(5)) * [0;1;0];                   % PROBLEM, missing theta_ddot
 
-x_t = x(24:29);  % state vector for Theodorsen
-x_t_dot = zeros(6,1);
-
-
-sigma2 = @(x,x0) 1./(1+exp(-10./deg2rad(5*a3.LS)*(x-x0)));
-C3D = @(L) L./(L+2.25);
-Ca = @(L) (L-0.26)./(L+0.29);
-
 % Foil 1 calculations
 
 % Relative velocity at the foil point, with tan. vel. contributions
@@ -480,8 +526,12 @@ vnx1 = vnb + cross(wnb, r_total1) + cross(wbp1, rpx1);
 
 anx1 = vnb_dot + cross(wnb, r_total1) + cross(wnb, cross(wnb, r_total1)) + ...
     2*cross(wnb, cross(wbp1, rpx1)) + cross(wbp_dot1, rpx1) + cross(wbp1, cross(wbp1, rpx1));
-
+if anx1(1) > 1000
+    disp(['anx1(1) large: ', num2str(anx1(1))]);
+end
 alpha1 = atan2(vnx1(3), vnx1(1)) + thetas(1);    % Angle of attack foil 1
+% Disp anx1 fpr debugging
+% disp(['anx1(3): ', num2str(anx1(3)), ', anx1(1): ', num2str(anx1(1))]);
 alpha1_acc = atan2(anx1(3), anx1(1)) + thetas(1);  % Acceleration angle of attack foil 1
 
 U_r1 = sqrt(vnx1(1)^2 + vnx1(3)^2);   % Relative speed foil 1
@@ -492,7 +542,8 @@ L1 = a3.S1/a3.c_m;                           % Span foil 1
 % Normal moment foil 1
 
 CLn1 = pi*sin(2*alpha1).*(1 - a3.CLs*sigma2(abs(alpha1),deg2rad(a3.alphaS)) + a3.CLs*sigma2(abs(alpha1),pi-deg2rad(a3.alphaS)));
-CDn1 = 2*pi*sin(alpha1).^2.*a3.CDs.*((1-a3.CLs) + ... % 1-a3.CLs might be wrong
+% CDn1 = 2*pi*sin(alpha1).^2.*a3.CDs.*((1-a3.CLs) + ... % 1-a3.CLs might be wrong
+CDn1 = 2*pi*sin(alpha1).^2.*a3.CDs.*(...
     a3.CLs.*sigma2(abs(alpha1),deg2rad(a3.alphaS)) - a3.CLs.*sigma2(abs(alpha1),pi-deg2rad(a3.alphaS)));
 CNn1 = (CLn1.^2 + CDn1.^2).^0.5*sign(alpha1);
 
@@ -504,7 +555,98 @@ x_cp1 = centerOfPressure(alpha1)*a3.c_m;
 
 Q_N_stat1 = F_N_3Dn1 * (x_cp1 - a3.pivot*a3.c_m);
 
-% Theodorsen model foil 1
+% Foil #2
+
+Ry2 = [
+    cos(thetas(2))  0   sin(thetas(2));
+    0               1   0;
+    -sin(thetas(2)) 0   cos(thetas(2))];
+
+x__p2 = zeros(3,1);
+rpx2 = Ry2 * x__p2;  % position of x__p 1 in body-fixed frame
+rbp2 = a3.r2_p;
+r_total2 = rbp2 + rpx2;
+wbp2 = thetas_dot(2) * [0;1;0];
+% wbp_dot2 = thetas_ddot(1) * [0;1;0];                   % PROBLEM, missing theta_ddot
+wbp_dot2 = (thetas_ddot(1)+nu_dot(5)) * [0;1;0];                   % PROBLEM, missing theta_ddot
+
+% Foil 2 calculations
+
+% Relative velocity at the foil point, with tan. vel. contributions
+vnx2 = vnb + cross(wnb, r_total2) + cross(wbp2, rpx2);
+
+anx2 = vnb_dot + cross(wnb, r_total2) + cross(wnb, cross(wnb, r_total2)) + ...
+    2*cross(wnb, cross(wbp2, rpx2)) + cross(wbp_dot2, rpx2) + cross(wbp2, cross(wbp2, rpx2));
+
+alpha2 = atan2(vnx2(3), vnx2(1)) + thetas(2);    % Angle of attack foil 2
+alpha2_acc = atan2(anx2(3), anx2(1)) + thetas(2);  % Acceleration angle of attack foil 2
+
+U_r2 = sqrt(vnx2(1)^2 + vnx2(3)^2);   % Relative speed foil 2
+U_r2_dot = sqrt(anx2(1)^2 + anx2(3)^2); % Relative acceleration foil 2
+
+L2 = a3.S2/a3.c_m;                           % Span foil 2
+
+% Normal moment foil 2
+
+CLn2 = pi*sin(2*alpha2).*(1 - a3.CLs*sigma2(abs(alpha2),deg2rad(a3.alphaS)) + a3.CLs*sigma2(abs(alpha2),pi-deg2rad(a3.alphaS)));
+CDn2 = 2*pi*sin(alpha2).^2.*a3.CDs.*((1-a3.CLs) + ... % 1-a3.CLs might be wrong
+    a3.CLs.*sigma2(abs(alpha2),deg2rad(a3.alphaS)) - a3.CLs.*sigma2(abs(alpha2),pi-deg2rad(a3.alphaS)));
+CNn2 = (CLn2.^2 + CDn2.^2).^0.5*sign(alpha2);
+
+F_N_2Dn2 = 0.5*env.rho*U_r2^2.*a3.c_m*CNn2;
+
+F_N_3Dn2 = F_N_2Dn2*a3.S2*C3D(L2);
+
+x_cp2 = centerOfPressure(alpha2)*a3.c_m;
+
+Q_N_stat2 = F_N_3Dn2 * (x_cp2 - a3.pivot*a3.c_m);
+
+% Foil #1
+
+Ry3 = [
+    cos(thetas(3))  0   sin(thetas(3));
+    0               1   0;
+    -sin(thetas(3)) 0   cos(thetas(3))];
+
+x__p3 = zeros(3,1);
+rpx3 = Ry3 * x__p3;  % position of x__p 3 in body-fixed frame
+rbp3 = a3.r3_p;
+r_total3 = rbp3 + rpx3;
+wbp3 = thetas_dot(3) * [0;1;0];
+wbp_dot3 = (thetas_ddot(3)+nu_dot(5)) * [0;1;0];                   % PROBLEM, missing theta_ddot
+
+% Foil 3 calculations
+
+% Relative velocity at the foil point, with tan. vel. contributions
+vnx3 = vnb + cross(wnb, r_total3) + cross(wbp3, rpx3);
+
+anx3 = vnb_dot + cross(wnb, r_total3) + cross(wnb, cross(wnb, r_total3)) + ...
+    2*cross(wnb, cross(wbp3, rpx3)) + cross(wbp_dot3, rpx3) + cross(wbp3, cross(wbp3, rpx3));
+
+alpha3 = atan2(vnx3(3), vnx3(1)) + thetas(3);    % Angle of attack foil 3
+alpha3_acc = atan2(anx3(3), anx3(1)) + thetas(3);  % Acceleration angle of attack foil 3
+
+U_r3 = sqrt(vnx3(1)^2 + vnx3(3)^2);   % Relative speed foil 3
+U_r3_dot = sqrt(anx3(1)^2 + anx3(3)^2); % Relative acceleration foil 3
+
+L3 = a3.S3/a3.c_m;                           % Span foil 3
+
+% Normal moment foil 3
+
+CLn3 = pi*sin(2*alpha3).*(1 - a3.CLs*sigma2(abs(alpha3),deg2rad(a3.alphaS)) + a3.CLs*sigma2(abs(alpha3),pi-deg2rad(a3.alphaS)));
+CDn3 = 2*pi*sin(alpha3).^2.*a3.CDs.*((1-a3.CLs) + ... % 1-a3.CLs might be wrong
+    a3.CLs.*sigma2(abs(alpha3),deg2rad(a3.alphaS)) - a3.CLs.*sigma2(abs(alpha3),pi-deg2rad(a3.alphaS)));
+CNn3 = (CLn3.^2 + CDn3.^2).^0.5*sign(alpha3);
+
+F_N_2Dn3 = 0.5*env.rho*U_r3^2.*a3.c_m*CNn3;
+
+F_N_3Dn3 = F_N_2Dn3*a3.S3*C3D(L3);
+
+x_cp3 = centerOfPressure(alpha3)*a3.c_m;
+
+Q_N_stat3 = F_N_3Dn3 * (x_cp3 - a3.pivot*a3.c_m);
+
+% Theodorsen model
 
 A_t_11 = [  -1.696*U_r1/a3.c_m, -0.380*(U_r1/a3.c_m)^2;
     1,                  0 ];
@@ -512,99 +654,178 @@ B_t_11 = [  1;  0];
 C_t_11 = [  0.250*U_r1/a3.c_m,  0.190*(U_r1/a3.c_m)^3 ];
 D_t_11 = 0.5;
 
-x_t_dot(1:2) = A_t_11*x_t(1:2) + B_t_11*Q_N_stat1;
-Q_N_1 = C_t_11*x_t(1:2) + D_t_11*Q_N_stat1;
+A_t_22 = [  -1.696*U_r2/a3.c_m, -0.380*(U_r2/a3.c_m)^2;
+    1,                  0 ];
+B_t_22 = [  1;  0];
+C_t_22 = [  0.250*U_r2/a3.c_m,  0.190*(U_r2/a3.c_m)^3 ];
+D_t_22 = 0.5;
+
+A_t_33 = [  -1.696*U_r3/a3.c_m, -0.380*(U_r3/a3.c_m)^2;
+    1,                  0 ];
+B_t_33 = [  1;  0];
+C_t_33 = [  0.250*U_r3/a3.c_m,  0.190*(U_r3/a3.c_m)^3 ];
+D_t_33 = 0.5;
+
+A_t = blkdiag(A_t_11, A_t_22, A_t_33);
+B_t = blkdiag(B_t_11, B_t_22, B_t_33);
+C_t = blkdiag(C_t_11, C_t_22, C_t_33);
+D_t = blkdiag(D_t_11, D_t_22, D_t_33);
+
+Q_N_stat = [Q_N_stat1; Q_N_stat2; Q_N_stat3];
+
+x_t_dot = A_t*x_t + B_t*Q_N_stat;
+Q_N = C_t*x_t + D_t*Q_N_stat;
 
 % Added mass moment
 F_A_1 = Ca(L1) * 1/4 * env.rho * pi * a3.c_m^2 * a3.S1 * U_r1_dot * sin(alpha1_acc);
-Q_A_1 = F_A_1*(0.5-0.2089)*a3.c_m;
+F_A_2 = Ca(L2) * 1/4 * env.rho * pi * a3.c_m^2 * a3.S2 * U_r2_dot * sin(alpha2_acc);
+F_A_3 = Ca(L3) * 1/4 * env.rho * pi * a3.c_m^2 * a3.S3 * U_r3_dot * sin(alpha3_acc);
+F_A = [F_A_1; F_A_2; F_A_3];
+Q_A = F_A*(0.5-0.2089)*a3.c_m;
 
 % Moment inertia
-rbp1 = a3.r1_p;
 omega = nu(4:6);
 omega_dot = nu_dot(4:6);
 % Total acceleration of the pivot point in body-fixed frame
-r_p_ddot = nu_dot(1:3) + cross(omega_dot, rbp1) + cross(omega, cross(omega, rbp1));
+rbp1 = a3.r1_p;
+r_p1_ddot = nu_dot(1:3) + cross(omega_dot, rbp1) + cross(omega, cross(omega, rbp1));
 
-r_pb_ddot = Rzyx(eta(4),eta(5),eta(6)) * r_p_ddot;  % in NED frame
-x_ddot = r_pb_ddot(1);
-z_ddot = r_pb_ddot(3);
+r_pb1_ddot = Rzyx(eta(4),eta(5),eta(6)) * r_p1_ddot;  % in NED frame
+x1_ddot = r_pb1_ddot(1);
+z1_ddot = r_pb1_ddot(3);
+
+rbp2 = a3.r2_p;
+r_p2_ddot = nu_dot(1:3) + cross(omega_dot, rbp2) + cross(omega, cross(omega, rbp2));
+
+r_pb2_ddot = Rzyx(eta(4),eta(5),eta(6)) * r_p2_ddot;  % in NED frame
+x2_ddot = r_pb2_ddot(1);
+z2_ddot = r_pb2_ddot(3);
+
+rbp3 = a3.r3_p;
+r_p3_ddot = nu_dot(1:3) + cross(omega_dot, rbp3) + cross(omega, cross(omega, rbp3));
+
+r_pb3_ddot = Rzyx(eta(4),eta(5),eta(6)) * r_p3_ddot;  % in NED frame
+x3_ddot = r_pb3_ddot(1);
+z3_ddot = r_pb3_ddot(3);
 
 % 𝑄 inertia = −𝛿𝑥𝑚 𝑧_𝑝 cos(𝜗𝑛 ) − 𝛿𝑥𝑚𝑥_𝑝 sin(𝜗𝑛 ), <=>
 % − Z̈p cos(ϑn ) · (xc.g. − xp )
 % − Ẍp sin(ϑn) · (xc.g. − xp )
-Q_inertia_1 = (-z_ddot*cos(thetas_n(1)) -x_ddot*sin(thetas_n(1)))*a3.mF1* (a3.cg-a3.pivot)*a3.c_m;
+Q_inertia_1 = (-z1_ddot*cos(thetas_n(1)) -x1_ddot*sin(thetas_n(1)))*a3.mF1* (a3.cg-a3.pivot)*a3.c_m;
+Q_inertia_2 = (-z2_ddot*cos(thetas_n(2)) -x2_ddot*sin(thetas_n(2)))*a3.mF2* (a3.cg-a3.pivot)*a3.c_m;
+Q_inertia_3 = (-z3_ddot*cos(thetas_n(3)) -x3_ddot*sin(thetas_n(3)))*a3.mF3* (a3.cg-a3.pivot)*a3.c_m;
+Q_inertia = [Q_inertia_1; Q_inertia_2; Q_inertia_3];
 
 % Foild dynamics #1
 
 MFF1 = a3.J1 + a3.eta*1/128*env.rho*pi*a3.c_m^4*a3.S1;
-% MFF2 = a3.J2 + a3.eta*1/128*env.rho*pi*a3.c_m^4*a3.S2;
+MFF2 = a3.J2 + a3.eta*1/128*env.rho*pi*a3.c_m^4*a3.S2;
+MFF3 = a3.J3 + a3.eta*1/128*env.rho*pi*a3.c_m^4*a3.S3;
+MFF = diag([MFF1, MFF2, MFF3]);
 
 CFF1 = a3.k_s*a3.x_s^2;           % Linear spring; aft foils are different
-% CFF2 = 1/64*a3.d^4*a3.E/(a3.D*a3.N_a);
+CFF2 = 1/64*a3.d^4*a3.E/(a3.D*a3.N_a);
+CFF3 = 1/63*a3.d^4*a3.E/(a3.D*a3.N_a);
+CFF = diag([CFF1, CFF2, CFF3]);
 
 BFFl1 = MFF1/a3.TB;
-% BFFq1 = MFF1/a3.TBB;
-BFFq1 = MFF1/a3.TBB*0;
-
+BFFq1 = MFF1/a3.TBB;
 BFF1 = BFFl1 + BFFq1*abs(thetas_n_dot(1));
+BFFl2 = MFF2/a3.TB;
+BFFq2 = MFF2/a3.TBB;
+BFF2 = BFFl2 + BFFq2*abs(thetas_n_dot(2));
+BFFl3 = MFF3/a3.TB;
+BFFq3 = MFF3/a3.TBB;
+BFF3 = BFFl3 + BFFq3*abs(thetas_n_dot(3));
+BFF = diag([BFF1, BFF2, BFF3]);
 
-thetas_n_ddot(1) = MFF1\( -BFF1*thetas_n_dot(1) - CFF1*thetas_n(1) + CFF1*ones(1,1)*theta + Q_A_1 + Q_N_1 + Q_inertia_1 );
+% % Temp
+% Q_A_1 = Q_A(1);
+% Q_N_1 = Q_N(1);
+
+thetas_n_ddot = MFF\( -BFF*thetas_n_dot - CFF*thetas_n + CFF*ones(3,1)*theta + Q_A + Q_N + Q_inertia );
 
 thetas_ddot = thetas_n_ddot - nu_dot(5);
 
 
 % Enforce foil angle limits
-if thetas(1) >= a3.th1max
-    if thetas_ddot(1) > 0
-        thetas_ddot(1) = 0;
-        if thetas_ddot(1) > 0
-            thetas_ddot(1) = 0;
+foilLimits = [a3.th1max, a3.th2max, a3.th3max];
+for j = 1:3
+    if thetas(j) >= foilLimits(j)
+        thetas(j) = foilLimits(j);
+        disp('End')
+        if thetas_dot(j) > 0
+            disp(['thetas_dot(',j,'): ', num2str(thetas_dot(j))]);
+            thetas_dot(j) = 0;
+            disp(['thetas_dot(',j,'): ', num2str(thetas_dot(j))]);
+        end
+        if thetas_ddot(j) > 0
+            disp(['thetas_ddot(',j,'): ', num2str(thetas_ddot(j))]);
+            thetas_ddot(j) = 0;
+            disp(['thetas_ddot(',j,'): ', num2str(thetas_ddot(j))]);
         end
     end
-end
-if thetas(1) <= -a3.th1max
-    if thetas_ddot(1) < 0
-        thetas_ddot(1) = 0;
-        if thetas_ddot(1) < 0
-            thetas_ddot(1) = 0;
+    if thetas(j) <= -foilLimits(j)
+        thetas(1) = -foilLimits(j);
+        if thetas_dot(j) < 0
+            disp(['thetas_dot(',j,'): ', num2str(thetas_dot(j))]);
+            thetas_dot(j) = 0;
+            disp(['thetas_dot(',j,'): ', num2str(thetas_dot(j))]);
         end
+        if thetas_ddot(j) < 0
+            disp(['thetas_ddot(',j,'): ', num2str(thetas_ddot(j))]);
+            thetas_ddot(j) = 0;
+            disp(['thetas_ddot(',j,'): ', num2str(thetas_ddot(j))]);
+        end
+    end
+    if abs(thetas_ddot(j)) > 15
+        thetas_ddot(j) = 15*sign(thetas_ddot(j));
     end
 end
 
-% Why does theta_n_ddot go to 3000? Debugging
-if thetas_n_ddot(1) > 3000
-    disp('Warning: High foil acceleration detected!');
+thetas_n = thetas + theta;
+F_N = Q_N ./ ([x_cp1;x_cp2;x_cp3] - a3.pivot*a3.c_m);
 
-    % Components of BFF1
-    disp(['MFF1: ', num2str(MFF1)]);
-    disp(['a3.TB: ', num2str(a3.TB)]);
-    disp(['BFFl1 (MFF1/a3.TB): ', num2str(BFFl1)]);
-    disp(['a3.TBB: ', num2str(a3.TBB)]);
-    disp(['BFFq1 (MFF1/a3.TBB): ', num2str(BFFq1)]);
-    disp(['abs(thetas_dot(1)): ', num2str(abs(thetas_dot(1)))]);
-    disp(['BFF1 (BFFl1 + BFFq1*abs(thetas_dot(1))): ', num2str(BFF1)]);
-
-    % Components of thetas_ddot(1)
-    disp(['MFF1: ', num2str(MFF1)]);
-    disp(['-BFF1*thetas_dot(1): ', num2str(-BFF1*thetas_dot(1))]);
-    disp(['-CFF1*thetas_n(1): ', num2str(-CFF1*thetas_n(1))]);
-    disp(['CFF1*theta: ', num2str(CFF1*theta)]);
-    disp(['Q_N_1: ', num2str(Q_N_1)]);
-    disp(['Q_A_1: ', num2str(Q_A_1)]);
-    disp(['Q_inertia_1: ', num2str(Q_inertia_1)]);
-    disp(['Sum of components: ', num2str(-BFF1*thetas_dot(1) - CFF1*thetas_n(1) + CFF1*theta + Q_N_1 + Q_A_1 + Q_inertia_1)]);
-    disp(['Resulting thetas_ddot(1): ', num2str(thetas_ddot(1))]);
-    disp('');
+tau_foil(1) = sum(abs((F_N + F_A) * (1-a3.tF) .* sin(thetas_n)));
+if tau_foil(1) > 5000
+    disp('Warning: tau_foil is too high')
 end
+
+%% Why does theta_n_ddot go to 3000? Debugging
+% if thetas_n_ddot(1) > 3000
+%     disp('Warning: High foil acceleration detected!');
+
+%     % Components of BFF1
+%     disp(['MFF1: ', num2str(MFF1)]);
+%     disp(['a3.TB: ', num2str(a3.TB)]);
+%     disp(['BFFl1 (MFF1/a3.TB): ', num2str(BFFl1)]);
+%     disp(['a3.TBB: ', num2str(a3.TBB)]);
+%     disp(['BFFq1 (MFF1/a3.TBB): ', num2str(BFFq1)]);
+%     disp(['abs(thetas_dot(1)): ', num2str(abs(thetas_dot(1)))]);
+%     disp(['BFF1 (BFFl1 + BFFq1*abs(thetas_dot(1))): ', num2str(BFF1)]);
+
+%     % Components of thetas_ddot(1)
+%     disp(['MFF1: ', num2str(MFF1)]);
+%     disp(['-BFF1*thetas_dot(1): ', num2str(-BFF1*thetas_dot(1))]);
+%     disp(['-CFF1*thetas_n(1): ', num2str(-CFF1*thetas_n(1))]);
+%     disp(['CFF1*theta: ', num2str(CFF1*theta)]);
+%     disp(['Q_N_1: ', num2str(Q_N_1)]);
+%     disp(['Q_A_1: ', num2str(Q_A_1)]);
+%     disp(['Q_inertia_1: ', num2str(Q_inertia_1)]);
+%     disp(['Sum of components: ', num2str(-BFF1*thetas_dot(1) - CFF1*thetas_n(1) + CFF1*theta + Q_N_1 + Q_A_1 + Q_inertia_1)]);
+%     disp(['Resulting thetas_ddot(1): ', num2str(thetas_ddot(1))]);
+%     disp('');
+% end
 
 % Store thetas_ddot, thetas_dot, and time in the log
 log.t(end+1, 1) = t;
 log.thetas_dot(end+1, :) = thetas_dot(:)';
 log.thetas_ddot(end+1, :) = thetas_ddot(:)';
-log.Q_N_1(end+1, :) = Q_N_1(:)';
-log.Q_A_1(end+1, :) = Q_A_1(:)';
-log.Q_inertia_1(end+1, :) = Q_inertia_1(:)';
+log.Q_N(end+1, :) = Q_N(:)';
+log.Q_A(end+1, :) = Q_A(:)';
+log.Q_inertia(end+1, :) = Q_inertia(:)';
+log.tau_foil(end+1, 1) = tau_foil(1)';
+log.tau_rudder(end+1, :) = tau_rudder(:)';
 
 % Save the log to a MAT-file when the simulation is complete
 if t >= tf % Assuming tf is the final simulation time
@@ -613,8 +834,18 @@ if t >= tf % Assuming tf is the final simulation time
     disp(t);
 end
 
+% % Printing foil accels every integer t for debygging
+% if abs(t - round(t)) < 1e-6
+%     disp(['Time t: ', num2str(t)]);
+%     disp(['thetas_ddot(1): ', num2str(thetas_ddot(1))]);
+%     disp(['thetas_ddot(2): ', num2str(thetas_ddot(2))]);
+%     disp(['thetas_ddot(3): ', num2str(thetas_ddot(3))]);
+%     disp(['tau_foil(1): ', num2str(tau_foil(1))]);
+% end
 
-% Time derivative of the state vector, numerical integration see SIMautonaut.m
+
+
+%% Time derivative of the state vector, for numerical integration see SIMautonaut.m
 xdot = [eta_dot; nu_dot; delta_dot; xr_dot; thetas_dot; thetas_ddot; x_t_dot];
 
 
