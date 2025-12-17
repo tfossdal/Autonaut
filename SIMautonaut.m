@@ -22,8 +22,8 @@ V_wind = 0;                         % Wind velocity [m/s]
 beta_wind = deg2rad(-45);                % Cardinal wind direction [rad]
 
 % Waves
-wave_omega = 1.5;                     % Wave frequency [rad/s]
-wave_height = 1;           % Significant wave height [m]
+wave_omega = 0.7;                     % Wave frequency [rad/s]
+wave_height = 1.1;           % Significant wave height [m]
 wave_amp = wave_height/2;           % Wave amplitude [m]
 wave_dir = deg2rad(40);              % Wave direction [rad]
 
@@ -31,6 +31,7 @@ wave_dir = deg2rad(40);              % Wave direction [rad]
 % Initial states
 x = zeros(29,1);                % x = [xn yn zn phi theta psi u v w p q r delta_r ...
                                 %  fluid_memory(4) ϑ(3) ϑ_dot(3) x_t(6) ]'
+% x(7) = 1.0;                     % Initial surge velocity [m/s]
 u = zeros(2,1);                 % Control input vector, u = [ delta_c thrust_c]
 
 % Time vector initialization
@@ -216,14 +217,14 @@ plot(sim_log.t, sim_log.Q_N, 'linewidth', 2);
 title('Logged Foil Normal Forces');
 legend('Foil 1', 'Foil 2', 'Foil 3');
 xlabel('Time (s)');
-ylabel('Force (m)');
+ylabel('Moment (Nm)');
 
 subplot(3,1,2)
 plot(sim_log.t, sim_log.Q_A, 'linewidth', 2);
 title('Logged Foil Added Mass Forces');
 legend('Foil 1', 'Foil 2', 'Foil 3');
 xlabel('Time (s)');
-ylabel('Force (N)');
+ylabel('Moment (Nm)');
 
 subplot(3,1,3)
 plot(sim_log.t, sim_log.Q_inertia, 'linewidth', 2);
@@ -246,7 +247,81 @@ xlabel('Time (s)');
 ylabel('Force (N)');
 legend('X-direction', 'Y-direction', 'Yaw-direction');
 
+figure()
+subplot(4,1,1)
+plot(sim_log.t, sim_log.F_N_stat, 'linewidth', 2);
+title('Logged Static Normal Forces on Foils');
+xlabel('Time (s)');
+ylabel('Force (N)');
+legend('Foil 1', 'Foil 2', 'Foil 3');
 
+subplot(4,1,2)
+plot(sim_log.t, sim_log.F_N, 'linewidth', 2);
+title('Logged Total Normal Forces on Foils');
+xlabel('Time (s)');
+ylabel('Force (N)');
+legend('Foil 1', 'Foil 2', 'Foil 3');
 
+subplot(4,1,3)
+plot(sim_log.t, sim_log.F_A, 'linewidth', 2);
+title('Logged Added Mass Forces on Foils');
+xlabel('Time (s)');
+ylabel('Force (N)');
+legend('Foil 1', 'Foil 2', 'Foil 3');
+
+subplot(4,1,4)
+plot(sim_log.t, sim_log.F_NA, 'linewidth', 2);
+title('Logged Added Mass and Normal Sum Forces on Foils');
+xlabel('Time (s)');
+ylabel('Force (N)');
+legend('Foil 1', 'Foil 2', 'Foil 3');
+
+figure()
+subplot(2,1,1)
+plot(sim_log.t, sim_log.vnx1, 'linewidth', 2);
+title('Logged Relative Velocity at Foil 1');
+xlabel('Time (s)');
+ylabel('Velocity (m/s)');
+legend('X-direction', 'Y-direction', 'Z-direction');
+
+subplot(2,1,2)
+plot(sim_log.t, sim_log.anx1, 'linewidth', 2);
+title('Logged Relative Acceleration at Foil 1');
+xlabel('Time (s)');
+ylabel('Acceleration (m/s^2)');
+legend('X-direction', 'Y-direction', 'Z-direction');
+
+figure()
+subplot(2,1,1)
+plot(sim_log.t, rad2deg(sim_log.thetas_n), 'linewidth', 2);
+% title('Logged NED Frame Foil Angles');
+xlabel('Time (s)');
+ylabel('Foil Angles (deg)');
+legend('Foil 1', 'Foil 2', 'Foil 3');
+
+% subplot(2,1,2)
+% plot(sim_log.t, sim_log.sin_thetas_n, 'linewidth', 2);
+% title('Logged Sine of NED Frame Foil Angles');
+% xlabel('Time (s)');
+% ylabel('Sine of Foil Angles');
+% legend('Foil 1', 'Foil 2', 'Foil 3');
+subplot(2,1,2)
+plot(t, nu(:,1), 'linewidth', 2);
+xlabel('Time (s)');
+ylabel('Surge Velocity (m/s)');
+
+figure()
+subplot(2,1,1)
+plot(sim_log.t, sim_log.tau_foil, 'linewidth', 2);
+title('Foil Force');
+xlabel('Time (s)');
+ylabel('Force (N)');
+
+subplot(2,1,2)
+plot(sim_log.t, sim_log.F_NA, 'linewidth', 2);
+title('Added Mass and Normal Sum Forces on Foils');
+xlabel('Time (s)');
+ylabel('Force (N)');
+legend('Foil 1', 'Foil 2', 'Foil 3');
 end
 

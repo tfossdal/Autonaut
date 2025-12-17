@@ -33,7 +33,7 @@ tf = 200;  % Final time for logging
 
 % Initialize persistent log variable on the first call
 if isempty(log)
-    log = struct('t', [], 'thetas_ddot', [], 'thetas_dot', [], 'Q_N', [], 'Q_A', [], 'Q_inertia', [], 'tau_foil', [], 'tau_rudder', []);
+    log = struct('t', [], 'thetas_ddot', [], 'thetas_dot', [], 'Q_N', [], 'Q_A', [], 'Q_inertia', [], 'tau_foil', [], 'tau_rudder', [], 'F_N_stat', [], 'F_N', [], 'F_A', [], 'F_NA', [], 'vnx1', [], 'anx1', [], 'thetas_n', [], 'sin_thetas_n', []);
 end
 
 
@@ -127,8 +127,8 @@ T4 = 2*a2.B*Cgeo/sqrt(a2.GMT);
 a3.mF1 = 3.5;                             % Mass [kg]
 a3.mF2 = 1.75;
 a3.mF3 = 1.75;
-a3.cg = 0.309;                          % Distance from pivot to foil CG [m]
-a3.J1 = 0.1091;                          % Calculated from the point that the foils have uniform density rho_f = 500
+a3.deltax = 0.370-a3.pivot;             % Distance from pivot to foil CG [m]
+a3.J1 = 0.1091;                         % Calculated with the foils have uniform density rho_f = 500
 a3.J2 = a3.J1/2;
 a3.J3 = a3.J1/2;
 a3.AF1 = 0.250;                         % Area [m^2]
@@ -261,12 +261,12 @@ delta_dot = (-delta + delta_c) / rudd.Ts;
 % Rudder forces
 alpha_r = delta - atan2(v_r, u_r);
 
-F_N = 0.5*env.rho*(u_r^2 + v_r^2)*rudd.area*rudd.CN*sin(alpha_r);
+F_N_rudd = 0.5*env.rho*(u_r^2 + v_r^2)*rudd.area*rudd.CN*sin(alpha_r);
 
 tau_rudder = [
-    -(1-rudd.tR)*F_N*sin(delta);
-    -(1+rudd.aH)*F_N*cos(delta);
-    -(rudd.xR + rudd.aH*rudd.xH)*F_N*cos(delta)];
+    -(1-rudd.tR)*F_N_rudd*sin(delta);
+    -(1+rudd.aH)*F_N_rudd*cos(delta);
+    -(rudd.xR + rudd.aH*rudd.xH)*F_N_rudd*cos(delta)];
 % tau_rudder = [ F_N * (1 - rudd.tR) * sin(delta);
 %                F_N * (1 + rudd.aH) * cos(delta);
 %                F_N * (rudd.xR + rudd.aH * rudd.xH) * cos(delta) * sin(alpha_r)];
@@ -288,7 +288,11 @@ tau_wind = 0.5*env.rho_a*(u_rw^2 + v_rw^2)*...
 
 
 tau = zeros(3,1) + tau_rudder + tau_wind + tau_foil;
-% tau(1) = 200;
+
+if t<50
+    tau(1) = 150;
+end
+
 
 
 % Manoeuvering model
@@ -722,9 +726,12 @@ z3_ddot = r_pb3_ddot(3);
 % 𝑄 inertia = −𝛿𝑥𝑚 𝑧_𝑝 cos(𝜗𝑛 ) − 𝛿𝑥𝑚𝑥_𝑝 sin(𝜗𝑛 ), <=>
 % − Z̈p cos(ϑn ) · (xc.g. − xp )
 % − Ẍp sin(ϑn) · (xc.g. − xp )
-Q_inertia_1 = (-z1_ddot*cos(thetas_n(1)) -x1_ddot*sin(thetas_n(1)))*a3.mF1* (a3.cg-a3.pivot)*a3.c_m;
-Q_inertia_2 = (-z2_ddot*cos(thetas_n(2)) -x2_ddot*sin(thetas_n(2)))*a3.mF2* (a3.cg-a3.pivot)*a3.c_m;
-Q_inertia_3 = (-z3_ddot*cos(thetas_n(3)) -x3_ddot*sin(thetas_n(3)))*a3.mF3* (a3.cg-a3.pivot)*a3.c_m;
+% Q_inertia_1 = (-z1_ddot*cos(thetas_n(1)) -x1_ddot*sin(thetas_n(1)))*a3.mF1* (a3.cg-a3.pivot)*a3.c_m;
+% Q_inertia_2 = (-z2_ddot*cos(thetas_n(2)) -x2_ddot*sin(thetas_n(2)))*a3.mF2* (a3.cg-a3.pivot)*a3.c_m;
+% Q_inertia_3 = (-z3_ddot*cos(thetas_n(3)) -x3_ddot*sin(thetas_n(3)))*a3.mF3* (a3.cg-a3.pivot)*a3.c_m;
+Q_inertia_1 = (-z1_ddot*cos(thetas_n(1)) -x1_ddot*sin(thetas_n(1)))*a3.mF1* (a3.deltax)*a3.c_m;
+Q_inertia_2 = (-z2_ddot*cos(thetas_n(2)) -x2_ddot*sin(thetas_n(2)))*a3.mF2* (a3.deltax)*a3.c_m;
+Q_inertia_3 = (-z3_ddot*cos(thetas_n(3)) -x3_ddot*sin(thetas_n(3)))*a3.mF3* (a3.deltax)*a3.c_m;
 Q_inertia = [Q_inertia_1; Q_inertia_2; Q_inertia_3];
 
 % Foild dynamics #1
@@ -789,16 +796,19 @@ for j = 1:3
             disp(['thetas_ddot(',j,'): ', num2str(thetas_ddot(j))]);
         end
     end
-    if abs(thetas_ddot(j)) > 15
-        thetas_ddot(j) = 15*sign(thetas_ddot(j));
+    if abs(thetas_ddot(j)) > 30
+        thetas_ddot(j) = 30*sign(thetas_ddot(j));
     end
 end
 
 thetas_n = thetas + theta;
 % F_N = Q_N ./ ([x_cp1;x_cp2;x_cp3] - a3.pivot*a3.c_m);
 
-% tau_foil(1) = sum(abs((F_N + F_A) * (1-a3.tF) .* sin(thetas_n)));
-tau_foil(1) = 100;
+
+F_NA = F_N + F_A;
+tau_foil(1) = sum((F_N + F_A) * (1-a3.tF) .* sin(thetas_n));
+% tau_foil(1) = sum((F_N + F_A) * (1-a3.tF) .* sin(thetas));
+% tau_foil(1) = 100;
 if tau_foil(1) > 5000
     disp('Warning: tau_foil is too high')
 end
@@ -838,6 +848,14 @@ log.Q_A(end+1, :) = Q_A(:)';
 log.Q_inertia(end+1, :) = Q_inertia(:)';
 log.tau_foil(end+1, 1) = tau_foil(1)';
 log.tau_rudder(end+1, :) = tau_rudder(:)';
+log.F_N_stat(end+1, :) = F_N_stat(:)';
+log.F_N(end+1, :) = F_N(:)';
+log.F_A(end+1, :) = F_A(:)';
+log.F_NA(end+1, :) = F_NA(:)';
+log.vnx1(end+1, :) = vnx1(:)';
+log.anx1(end+1, :) = anx1(:)';
+log.thetas_n(end+1, :) = thetas_n(:)';
+log.sin_thetas_n(end+1, :) = sin(thetas_n(:))';
 
 % Save the log to a MAT-file when the simulation is complete
 if t >= tf % Assuming tf is the final simulation time
