@@ -48,5 +48,5 @@ SIMautonaut.m
 ---
 
 ## Acknowledgments
-* **Tufte, A.** for doing all the modelling, and helping me the maths and physics thoughout the project.
+* **Tufte, A.** for doing all the modelling, and helping me understand the maths, physics and the Simulink model thoughout the project.
 * **Gryte, K.** for being my advisor and helping me complete the project.
